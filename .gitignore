@@ -1,0 +1,22 @@
+node_modules/
+dist/
+.env
+.env.*
+!.env.example
+*.log
+data/audit/*.jsonl
+data/backtests/*.json
+data/runtime/
+coverage/
+.DS_Store
+.turbo/
+*.tsbuildinfo
+# Next.js
+.next/
+next-env.d.ts
+out/
+# never commit keys / wallet material
+*.key
+*.pem
+twak-config.json
+_wallet-backup/
