@@ -1,0 +1,47 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    color-scheme: dark;
+  }
+  html,
+  body {
+    @apply bg-bg text-ink antialiased;
+  }
+  body {
+    background-image:
+      radial-gradient(900px 520px at 82% -12%, rgba(0, 255, 136, 0.06), transparent),
+      radial-gradient(700px 420px at -5% 0%, rgba(0, 255, 136, 0.04), transparent);
+    background-attachment: fixed;
+  }
+  /* Subtle film grain over the whole app for a premium printed-paper feel. */
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    opacity: 0.025;
+    mix-blend-mode: overlay;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+  ::selection {
+    background: rgba(0, 255, 136, 0.32);
+    color: #000;
+  }
+}
+
+@layer utilities {
+  .tabular {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum";
+  }
+  .card {
+    @apply rounded-2xl border border-line bg-bg-raised/70 shadow-card backdrop-blur-sm;
+  }
+  .hairline {
+    @apply border-line;
+  }
+}
