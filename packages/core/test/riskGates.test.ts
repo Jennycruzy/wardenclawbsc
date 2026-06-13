@@ -195,4 +195,41 @@ describe("risk constitution gate chain", () => {
     expect(evaluateRiskGates(baseCandidate, { ...baseState, regime: "GREEN" }, ctx).approved).toBe(true);
     expect(evaluateRiskGates(baseCandidate, { ...baseState, regime: "NEUTRAL" }, ctx).approved).toBe(true);
   });
+
+  it("rejects a dust trade when the measured real round-trip exceeds the ceiling", () => {
+    // 400bps > the 350bps default ceiling — fixed cost dominates a too-small notional.
+    const r = evaluateRiskGates(
+      { ...baseCandidate, expectedMoveBps: 1000, realRoundTripBps: 400 },
+      baseState,
+      ctx,
+    );
+    expect(r.approved).toBe(false);
+    expect(r.rejectCode).toBe("REJECT_DUST_TRADE");
+  });
+
+  it("exempts the stable scout and forced safety exits from the dust gate", () => {
+    const scout = evaluateRiskGates(
+      { ...baseCandidate, tokenOutAddress: USDC, isMicroScout: true, realRoundTripBps: 400 },
+      baseState,
+      ctx,
+    );
+    expect(scout.approved).toBe(true);
+
+    const exit = evaluateRiskGates(
+      { ...baseCandidate, forcedSafetyExit: true, expectedMoveBps: 0, realRoundTripBps: 400 },
+      baseState,
+      ctx,
+    );
+    expect(exit.approved).toBe(true);
+  });
+
+  it("allows a healthy-cost trade below the dust ceiling", () => {
+    const r = evaluateRiskGates(
+      { ...baseCandidate, expectedMoveBps: 300, realRoundTripBps: 120 },
+      baseState,
+      ctx,
+    );
+    expect(r.approved).toBe(true);
+    expect(r.passedGates).toContain("net_edge");
+  });
 });

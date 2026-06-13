@@ -157,13 +157,14 @@ describe("evaluateCandidate — two ledgers (WS1)", () => {
 
   it("rejects a scored-positive but wallet-ruinous trade via the wallet floor", () => {
     // Scored cost is tiny (default 10/leg → 20bps), so a modest move clears the
-    // scored gate; but a measured real round-trip of 900bps puts the wallet floor
-    // at 675bps, which the calibrated move cannot clear.
+    // scored gate; but a measured real round-trip of 300bps puts the wallet floor
+    // at 225bps, which the calibrated move (120) cannot clear. 300bps stays under
+    // the dust ceiling, so it is the wallet floor — not the dust gate — that vetoes.
     const lowMove: CalibrationReport = {
       ...calibration,
       bands: [{ minScore: 80, realizedMoveBps: 120, hitRate: 0.9, realizedVsPredicted: 1 }],
     };
-    const r = evaluateCandidate(candidate(), ctx({ calibration: lowMove, realRoundTripBps: 900 }));
+    const r = evaluateCandidate(candidate(), ctx({ calibration: lowMove, realRoundTripBps: 300 }));
     expect(r.approved).toBe(false);
     expect(r.rejectCode).toBe("REJECT_WALLET_FLOOR");
   });
@@ -274,6 +275,28 @@ describe("evaluateCandidate — week-schedule risk budget (WS6)", () => {
     expect(scout.approved).toBe(true);
     expect(scout.economics.positionSizeUsd).toBe(DEFAULT_RISK_CONFIG.microScoutUsd);
     expect(scout.sizeMultiplier).toBeUndefined();
+  });
+});
+
+describe("evaluateCandidate — measured cost + dust gate (WS8)", () => {
+  it("rejects a dust trade when the measured real round-trip exceeds the ceiling", () => {
+    const r = evaluateCandidate(candidate(), ctx({ realRoundTripBps: 400 }));
+    expect(r.approved).toBe(false);
+    expect(r.rejectCode).toBe("REJECT_DUST_TRADE");
+  });
+
+  it("approves when the measured real round-trip stays under the ceiling", () => {
+    const r = evaluateCandidate(candidate(), ctx({ realRoundTripBps: 120 }));
+    expect(r.approved).toBe(true);
+    expect(r.economics.realRoundTripBps).toBe(120);
+  });
+
+  it("exempts the Micro-Scout from the dust gate even at a high measured cost", () => {
+    const scout = evaluateCandidate(
+      candidate({ symbol: "USDC", tokenInAddress: USDT, tokenOutAddress: USDC, isMicroScout: true }),
+      ctx({ realRoundTripBps: 400 }),
+    );
+    expect(scout.approved).toBe(true);
   });
 });
 

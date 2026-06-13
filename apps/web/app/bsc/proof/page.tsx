@@ -8,6 +8,7 @@ import {
   computeBscProof,
   loadHourlySnapshots,
   readBscEnv,
+  readWalletCost,
 } from "@/lib/data";
 import { DEFAULT_RISK_CONFIG } from "@wardenclaw/core";
 import { totalReturnPct, maxDrawdownPct, type HourlySnapshot } from "@wardenclaw/core";
@@ -28,6 +29,7 @@ export default function BscProof() {
   const liveValue = snaps.length ? snaps[snaps.length - 1]!.valueUsd : null;
   const tradeRows = mandates.filter((m) => m.risk.approved);
   const weeklyTrades = tradeRows.length;
+  const walletCost = readWalletCost();
 
   return (
     <BscShell
@@ -111,6 +113,14 @@ export default function BscProof() {
 
       <div className="mt-3">
         <SectionTitle title="Trade ledger" subtitle="Two ledgers per trade — scored (competition simulated cost) drives the gate; wallet (measured real round-trip) protects the $40" />
+        {walletCost ? (
+          <div className="mb-3 flex flex-wrap items-center gap-2 text-xs text-ink-muted">
+            <Badge tone={walletCost.measured ? "pos" : "neutral"}>
+              Real round-trip {walletCost.rollingBps.toFixed(0)} bps · {walletCost.measured ? `${walletCost.sampleCount} measured fill(s)` : "modeled bootstrap"}
+            </Badge>
+            <span>Wallet floor {walletCost.walletFloorBps.toFixed(0)} bps · dust ceiling {walletCost.dustCeilingBps} bps</span>
+          </div>
+        ) : null}
         {tradeRows.length === 0 ? (
           <EmptyState
             title="No live trades yet"

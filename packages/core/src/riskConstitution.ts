@@ -173,6 +173,22 @@ export function evaluateRiskGates(
     passedGates.push("trade_limits");
   }
 
+  // Dust prevention (Wallet Ledger): a notional so small that the MEASURED real
+  // round-trip cost dominates is not worth entering — fixed gas swamps a tiny
+  // position. Scouts and forced safety exits are exempt (we must always be able to
+  // get out, and the stable scout is intentionally tiny).
+  if (
+    !candidate.isMicroScout &&
+    !candidate.forcedSafetyExit &&
+    candidate.realRoundTripBps !== undefined &&
+    candidate.realRoundTripBps > config.dustRoundTripCeilingBps
+  ) {
+    return reject(
+      RejectCode.DUST_TRADE,
+      `real round-trip ${candidate.realRoundTripBps.toFixed(0)}bps > dust ceiling ${config.dustRoundTripCeilingBps}bps — notional too small to overcome fixed cost`,
+    );
+  }
+
   // Net-edge gate + wallet floor (directional trades only; scouts and safety exits exempt).
   if (!candidate.isMicroScout) {
     const netEdge = evaluateNetEdge({

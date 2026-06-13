@@ -15,6 +15,44 @@
  * hardcoded — it starts from the rehearsal swap and updates on every real fill.
  */
 
+import { z } from "zod";
+
+// ── Measuring a realized round-trip from real fills ──────────────────────────
+
+export interface RoundTripMeasurement {
+  /** USDT spent to enter (entry leg notional). */
+  entryNotionalUsd: number;
+  /** USDT actually received on exit (the exit fill's realized output). */
+  exitProceedsUsd: number;
+  /** Token mid price (USDT/token) at entry. */
+  entryPrice: number;
+  /** Token mid price (USDT/token) at exit. */
+  exitPrice: number;
+  /** Native gas paid on the entry leg, in USD (defaults 0). */
+  entryGasUsd?: number;
+  /** Native gas paid on the exit leg, in USD (defaults 0). */
+  exitGasUsd?: number;
+}
+
+/**
+ * Measure the REAL round-trip cost of a completed position in bps of notional,
+ * isolated from the token's price move. The frictionless benchmark for a round
+ * trip of `entryNotionalUsd` is `entryNotionalUsd × (exitPrice/entryPrice)` —
+ * what the capital would be worth at exit with zero cost. The shortfall of the
+ * actual proceeds against that benchmark is the slippage + LP-fee cost of BOTH
+ * legs; gas (paid separately in native BNB) is added explicitly. Clamped at ≥0
+ * so a favorable fill never feeds a negative cost into the rolling estimate.
+ */
+export function measureRoundTripBps(m: RoundTripMeasurement): number {
+  if (!(m.entryNotionalUsd > 0)) throw new Error("measureRoundTripBps: entryNotionalUsd must be > 0");
+  if (!(m.entryPrice > 0) || !(m.exitPrice > 0)) throw new Error("measureRoundTripBps: prices must be > 0");
+  if (!(m.exitProceedsUsd >= 0)) throw new Error("measureRoundTripBps: exitProceedsUsd must be >= 0");
+  const frictionlessUsd = m.entryNotionalUsd * (m.exitPrice / m.entryPrice);
+  const slipFeeBps = (1 - m.exitProceedsUsd / frictionlessUsd) * 10_000;
+  const gasBps = (((m.entryGasUsd ?? 0) + (m.exitGasUsd ?? 0)) / m.entryNotionalUsd) * 10_000;
+  return Math.max(0, slipFeeBps + gasBps);
+}
+
 // ── Rolling real round-trip cost estimate (Wallet Ledger input) ──────────────
 
 export interface RollingCostState {
@@ -45,6 +83,21 @@ export function recordRoundTrip(state: RollingCostState, realizedBps: number): R
 export function realRoundTripBps(state: RollingCostState): number {
   if (state.samples.length === 0) return state.bootstrapBps;
   return state.samples.reduce((s, v) => s + v, 0) / state.samples.length;
+}
+
+const rollingCostSchema = z.object({
+  bootstrapBps: z.number(),
+  samples: z.array(z.number()),
+  windowSize: z.number(),
+});
+
+export function serializeRollingCost(state: RollingCostState): string {
+  return JSON.stringify(rollingCostSchema.parse(state));
+}
+
+/** Parse a persisted wallet-cost ledger, throwing loudly on corruption. */
+export function parseRollingCost(raw: string): RollingCostState {
+  return rollingCostSchema.parse(JSON.parse(raw)) as RollingCostState;
 }
 
 // ── Scored Ledger ────────────────────────────────────────────────────────────
