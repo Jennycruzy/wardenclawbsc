@@ -10,10 +10,12 @@
  *   the `twak` binary on PATH          — `npm i -g @trustwallet/cli`
  *
  * It never fabricates a tx hash: a missing CLI, a non-zero exit, or unparseable
- * output all throw. Verified command surface (tw-agent-skills):
+ * output all throw. Verified command surface (tw-agent-skills `skills/wallet`):
  *   twak wallet status --json
  *   twak swap <from> <to> --chain bsc --usd <amt> --slippage <pct> --json
  *   twak compete register --json
+ *   twak x402 request <url> --max-payment <atomic> [--prefer-network bsc]
+ *        [--prefer-asset <addr|name>] --yes --json   (references/x402.md)
  */
 
 import { execFile } from "node:child_process";
@@ -133,12 +135,43 @@ export class CliTwakExecutor implements TwakExecutor {
     };
   }
 
-  async payX402(_req: { url: string; maxAmount: string; asset: string }): Promise<X402Receipt> {
-    // CMC x402 settles in USDC on Base via EIP-3009 — handled by the dedicated
-    // CmcX402Client, not the BSC-focused twak CLI. Fail loud rather than pretend.
-    throw new TwakCliError(
-      "x402 payment is handled by CmcX402Client (USDC on Base), not the twak CLI. Configure X402_PRIVATE_KEY.",
-    );
+  /**
+   * Pay an x402 pay-per-request through the TWAK CLI — the self-custodial,
+   * TWAK-native x402 path (settles via EIP-3009/Permit2 on the route TWAK picks;
+   * `X402_PREFER_NETWORK` can pin BSC or Base). `maxAmount` is in atomic units of
+   * the chosen asset (e.g. "10000" = 0.01 USDC at 6dp). Never fabricates a
+   * receipt: an error envelope or a missing settlement id throws.
+   */
+  async payX402(req: { url: string; maxAmount: string; asset: string }): Promise<X402Receipt> {
+    const args = ["x402", "request", req.url, "--max-payment", req.maxAmount, "--yes", "--json"];
+    if (req.asset) args.push("--prefer-asset", req.asset);
+    const preferNetwork = process.env.X402_PREFER_NETWORK;
+    if (preferNetwork) args.push("--prefer-network", preferNetwork);
+
+    const out = await this.json(args);
+    if (out.error) {
+      throw new TwakCliError(`twak x402 request failed (${(out.errorCode as string) ?? "ERROR"}): ${String(out.error)}`);
+    }
+    const settlement =
+      (out.receipt as string) ??
+      (out.settlement as string) ??
+      (out.id as string) ??
+      (out.txHash as string) ??
+      (out.hash as string);
+    if (!settlement) {
+      throw new TwakCliError("twak x402 request returned no settlement/receipt id");
+    }
+    return {
+      requestUrl: req.url,
+      amount: String((out.amount as string | number | undefined) ?? req.maxAmount),
+      asset: String((out.asset as string | undefined) ?? req.asset),
+      payer: (out.payer as string) ?? (out.from as string) ?? "",
+      recipient: (out.recipient as string) ?? (out.payTo as string) ?? (out.to as string) ?? "x402-endpoint",
+      receipt: String(settlement),
+      responseSummary: "twak x402 request",
+      usedInDecision: true,
+      timestamp: new Date().toISOString(),
+    };
   }
 
   /** The address-keyed allowlist this executor enforces symbols against. */

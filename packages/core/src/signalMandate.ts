@@ -89,6 +89,7 @@ const proofAnchors = z.object({
   bscTxHash: z.string().optional(),
   twakReceipt: z.string().optional(),
   x402Receipt: z.string().optional(),
+  x402Path: z.enum(["twak", "viem_fallback"]).optional(),
   cmcRequestId: z.string().optional(),
   bitgetRequestId: z.string().optional(),
   paperFillSource: z.string().optional(),

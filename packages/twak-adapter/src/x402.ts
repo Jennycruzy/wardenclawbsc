@@ -39,3 +39,45 @@ export async function payX402InLoop(
 export function isReceiptComplete(r: X402Receipt): boolean {
   return Boolean(r.requestUrl && r.amount && r.payer && r.recipient && r.receipt && r.timestamp);
 }
+
+/**
+ * Which x402 path to use. TWAK-first for the rubric (native x402) and for
+ * self-custody integrity (no raw signing key outside TWAK). The viem CmcX402Client
+ * is a clearly-labeled fallback, only behind X402_FALLBACK_VIEM with a key present.
+ */
+export type X402Path = "twak" | "viem_fallback" | "none";
+
+export interface X402ModeInputs {
+  /** A configured TWAK executor is available (live mode). */
+  twakConfigured: boolean;
+  /** X402_FALLBACK_VIEM=true. */
+  fallbackViemEnabled: boolean;
+  /** A raw Base signing key (X402_PRIVATE_KEY) is present for the viem fallback. */
+  viemKeyPresent: boolean;
+}
+
+export function chooseX402Path(i: X402ModeInputs): X402Path {
+  if (i.twakConfigured) return "twak";
+  if (i.fallbackViemEnabled && i.viemKeyPresent) return "viem_fallback";
+  return "none";
+}
+
+/**
+ * True when x402 is required by config but no usable path exists — the worker
+ * must then fail loudly and block the dependent trade rather than skip silently.
+ */
+export function x402BlocksTrade(path: X402Path, x402Required: boolean): boolean {
+  return x402Required && path === "none";
+}
+
+/** Human-facing label for receipts/dashboard. The viem path is never shown as TWAK. */
+export function x402PathLabel(path: X402Path): string {
+  switch (path) {
+    case "twak":
+      return "twak";
+    case "viem_fallback":
+      return "viem_fallback (non-TWAK)";
+    default:
+      return "none";
+  }
+}

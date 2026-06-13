@@ -10,7 +10,7 @@ engineered against each.
 | **Integration depth (30)** — sole executor, more than one surface | TWAK is the only signer and uses **three** surfaces: local signing, autonomous mode, and native x402. The strategy/risk logic is upstream; TWAK is structurally irreplaceable. | `packages/twak-adapter/*`, `PolicyEnforcingExecutor`, `payX402InLoop`, registration |
 | **Self-custody integrity (20–25)** — clean local signing, zero custodial components | The backend produces Signal Mandates only and **cannot move funds**; no DB-stored keys; the key stays local with TWAK. | `apps/api` (no signer), `apps/worker` (no signer), `docs/SAFETY.md` |
 | **Autonomous execution + guardrails (20)** — hands-off, builder-set rules | Drawdown caps, address-keyed allowlists, per-trade & daily limits, slippage protection — all enforced at the signer. Plus net-edge, stop coherence, shadow-fill, gas reserve, loss-streak cooldown, survival mode, no infinite approvals, allowlisted router/spender. | `evaluateTwakPolicy`, `evaluateRiskGates`, `test/policy.test.ts` |
-| **Native x402 (10)** — pays per request in the trade loop | x402 pays for the CMC request used in the decision; the receipt is chained into the mandate (`x402 request → paid → used → mandate`). | `payX402InLoop`, `X402Receipt`, proof anchors |
+| **Native x402 (10)** — pays per request in the trade loop | **TWAK-native** x402 (`twak x402 request`, verified from tw-agent-skills) pays for the CMC request used in the decision; the receipt is chained into the mandate (`x402 request → paid → used → mandate`). The raw-viem client is a fallback only, behind `X402_FALLBACK_VIEM`, always labeled `viem_fallback (non-TWAK)` — never shown as TWAK x402. | `CliTwakExecutor.payX402`, `payX402InLoop`, `chooseX402Path`, proof anchor `x402Path` |
 | **Originality & relevance (10)** — an agent a self-custody user would run unattended | A disciplined $40 spot trader with a survival constitution and a kill-switch reachable from a phone. | `/bsc/ops`, `KillSwitch` |
 | **Demo & presentation (5)** — loop end-to-end with on-chain proof | The demo walks perception → gates → TWAK refusal → real swap → BSC tx on `/bsc/proof`. | `scripts/demo-twak-refusal.ts`, `/bsc/proof` |
 
@@ -49,6 +49,9 @@ Evidence: `packages/cmc-adapter/*`, `buildMomentumInputs`/`buildCatalystInputs`,
 - **LLM proposes, deterministic engine decides, Risk Constitution vetoes, TWAK
   executes only approved eligible-contract spot mandates.** There is no
   LLM-direct live-execution path (`packages/core/src/llm`, `docs/LLM_POLICY.md`).
-- **x402:** preferred path pays the CMC request used in the decision through TWAK;
-  fallback is the official CMC x402 client. Every request logs url/amount/asset/
-  payer/recipient/receipt/usedInDecision. No README-only claims.
+- **x402:** the competition path pays the CMC request used in the decision through
+  **TWAK** (`twak x402 request`); the viem CMC client is a labeled fallback only,
+  behind `X402_FALLBACK_VIEM`, and is recorded as `viem_fallback (non-TWAK)`. If
+  x402 is required (`X402_REQUIRED`) and no path is available, the dependent trade
+  is blocked — never silently skipped. Every request logs url/amount/asset/payer/
+  recipient/receipt/usedInDecision. No README-only claims.
