@@ -1,12 +1,15 @@
 import { BscShell } from "@/components/bscShell";
 import { Card, SectionTitle, Badge, Dot, KeyValue } from "@/components/ui";
-import { readBscEnv } from "@/lib/data";
+import { readBscEnv, readWatchHeartbeat } from "@/lib/data";
 
 export const dynamic = "force-dynamic";
 
 /** Phone-first health view (§0.11). Reads live config + integration readiness. */
 export default function BscOps() {
   const env = readBscEnv();
+  const watch = readWatchHeartbeat();
+  const watchStaleMs = watch ? Date.now() - new Date(watch.lastBeatIso).getTime() : null;
+  const watchHealthy = watchStaleMs !== null && watchStaleMs < 120_000;
 
   const checks: Array<{ label: string; ok: boolean; detail: string }> = [
     { label: "Spot-only execution", ok: env.executionType === "spot_only", detail: env.executionType },
@@ -36,6 +39,30 @@ export default function BscOps() {
               </div>
             ))}
           </div>
+        </Card>
+
+        <Card>
+          <SectionTitle title="Fast position-watch loop" subtitle="Protection cadence — trails open positions and fires safety exits between decision cycles" />
+          {watch ? (
+            <div className="space-y-1">
+              <div className="flex items-center justify-between border-b border-line/50 py-2.5">
+                <div className="flex items-center gap-2.5">
+                  <Dot tone={watchHealthy ? "pos" : "warn"} />
+                  <span className="text-sm">Heartbeat</span>
+                </div>
+                <span className="text-xs text-ink-muted">
+                  {watchHealthy ? "live" : "stale"} · {watchStaleMs !== null ? `${Math.round(watchStaleMs / 1000)}s ago` : "—"}
+                </span>
+              </div>
+              <KeyValue k="Watching" v={watch.watching ? `${watch.openPositions} open position(s)` : "idle (flat)"} />
+              {watch.lastError ? <KeyValue k="Last error" v={watch.lastError} /> : null}
+            </div>
+          ) : (
+            <p className="py-3 text-xs text-ink-faint">
+              No watch heartbeat yet. The loop runs only while the worker is up; it watches open positions every{" "}
+              <code className="font-mono">POSITION_WATCH_INTERVAL_SECONDS</code> and never opens trades or calls the LLM.
+            </p>
+          )}
         </Card>
 
         <Card>

@@ -9,6 +9,7 @@ export * from "./drawdownGovernor.js";
 export * from "./shadowFill.js";
 export * from "./trailingStop.js";
 export * from "./positionStore.js";
+export * from "./positionWatch.js";
 export * from "./edgeCalibration.js";
 export * from "./eligibleTokens.js";
 export * from "./signalScorer.js";
