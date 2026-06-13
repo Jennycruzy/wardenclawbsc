@@ -43,7 +43,7 @@ const baseCandidate: RiskGateCandidate = {
   isNonSpot: false,
   notionalUsd: 20,
   expectedMoveBps: 300,
-  frictionBps: 120,
+  scoredFrictionBps: 120,
 };
 
 describe("risk constitution gate chain", () => {
@@ -90,6 +90,26 @@ describe("risk constitution gate chain", () => {
   it("blocks a directional trade with insufficient net edge", () => {
     const r = evaluateRiskGates({ ...baseCandidate, expectedMoveBps: 100 }, baseState, ctx);
     expect(r.rejectCode).toBe("REJECT_NET_EDGE");
+  });
+
+  it("rejects a scored-positive trade that fails the wallet floor", () => {
+    // scored required = 20 + 30 = 50 (cleared by 60); wallet floor = 0.75 × 200 = 150 (failed).
+    const r = evaluateRiskGates(
+      { ...baseCandidate, expectedMoveBps: 60, scoredFrictionBps: 20, realRoundTripBps: 200 },
+      baseState,
+      ctx,
+    );
+    expect(r.rejectCode).toBe("REJECT_WALLET_FLOOR");
+  });
+
+  it("clears both gates and records the wallet_floor gate", () => {
+    const r = evaluateRiskGates(
+      { ...baseCandidate, expectedMoveBps: 300, scoredFrictionBps: 20, realRoundTripBps: 200 },
+      baseState,
+      ctx,
+    );
+    expect(r.approved).toBe(true);
+    expect(r.passedGates).toContain("wallet_floor");
   });
 
   it("allows the stable↔stable micro-scout despite weak edge", () => {

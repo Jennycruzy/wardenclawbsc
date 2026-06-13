@@ -35,6 +35,7 @@ export const RejectCode = {
   NON_SPOT: "REJECT_NON_SPOT",
   INELIGIBLE_CONTRACT: "REJECT_INELIGIBLE_CONTRACT",
   NET_EDGE: "REJECT_NET_EDGE",
+  WALLET_FLOOR: "REJECT_WALLET_FLOOR",
   STOP_COHERENCE: "REJECT_STOP_COHERENCE",
   SHADOW_FILL: "REJECT_SHADOW_FILL",
   WRONG_CHAIN: "REJECT_WRONG_CHAIN",
@@ -80,6 +81,14 @@ export interface MandateEconomics {
   frictionBps: number; // includes simulated scoring cost
   realFrictionBps: number;
   simulatedCostBps: number;
+  /** Scored Ledger: round-trip cost the competition charges (drives net-edge gate). */
+  scoredFrictionBps: number;
+  /** Wallet Ledger: measured/modeled real round-trip cost (drives the wallet floor). */
+  realRoundTripBps?: number;
+  /** walletFloorFraction × realRoundTripBps — the wallet-loss sanity threshold. */
+  walletFloorBps?: number;
+  /** Whether expected move cleared the wallet floor. */
+  walletFloorPassed?: boolean;
   expectedMoveBps: number;
   netEdgePassed: boolean;
   stopDistancePct?: number;

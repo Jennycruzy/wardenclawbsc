@@ -27,7 +27,10 @@ export interface RiskGateCandidate {
   isNonSpot: boolean;
   notionalUsd: number;
   expectedMoveBps: number;
-  frictionBps: number; // round trip incl. simulated cost
+  /** Scored Ledger: round-trip simulated scoring cost (drives the net-edge gate). */
+  scoredFrictionBps: number;
+  /** Wallet Ledger: measured real round-trip cost (drives the wallet floor). Optional. */
+  realRoundTripBps?: number;
   /** Optional shadow-fill simulation result. */
   shadowFill?: { expectedOut: number; simulatedOut: number };
   /** Whether this is a forced safety exit (bypasses net-edge only). */
@@ -162,18 +165,21 @@ export function evaluateRiskGates(
     passedGates.push("trade_limits");
   }
 
-  // Net-edge gate (directional trades only; scouts and safety exits exempt).
+  // Net-edge gate + wallet floor (directional trades only; scouts and safety exits exempt).
   if (!candidate.isMicroScout) {
     const netEdge = evaluateNetEdge({
       expectedMoveBps: candidate.expectedMoveBps,
-      frictionBps: candidate.frictionBps,
+      scoredFrictionBps: candidate.scoredFrictionBps,
       netEdgeMinBps: config.netEdgeMinBps,
+      realRoundTripBps: candidate.realRoundTripBps,
+      walletFloorFraction: config.walletFloorFraction,
       forcedSafetyExit: candidate.forcedSafetyExit,
     });
     if (!netEdge.passed) {
-      return reject(RejectCode.NET_EDGE, netEdge.reason);
+      return reject(netEdge.rejectCode ?? RejectCode.NET_EDGE, netEdge.reason);
     }
     passedGates.push("net_edge");
+    if (netEdge.walletFloorPassed !== undefined) passedGates.push("wallet_floor");
   } else {
     passedGates.push("micro_scout_exempt");
   }
