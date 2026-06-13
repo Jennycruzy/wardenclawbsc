@@ -37,7 +37,14 @@ export function ExecutionStatusChip({ status }: { status: string }) {
 }
 
 export function SignalFamilyChip({ family }: { family: string }) {
-  const tone = family === "catalyst" ? "attack" : family === "momentum" ? "accent" : "neutral";
+  const tone =
+    family === "catalyst"
+      ? "attack"
+      : family === "momentum"
+        ? "accent"
+        : family === "rs_continuation"
+          ? "pos"
+          : "neutral";
   return <Badge tone={tone}>{family}</Badge>;
 }
 

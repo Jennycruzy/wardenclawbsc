@@ -13,6 +13,8 @@ import {
   bscScoreMode,
   computeFriction,
   computeScoredFrictionBps,
+  evaluateCatalystEntry,
+  evaluateRsContinuation,
   evaluateGovernor,
   evaluateNetEdge,
   evaluateRiskGates,
@@ -26,6 +28,7 @@ import {
   type EligibleAllowlist,
   type RiskConfig,
   type SignalFamily,
+  type SignalObservation,
 } from "@wardenclaw/core";
 import { expectedSlippageBps } from "@wardenclaw/bsc-adapter";
 import { evaluateTwakPolicy, type TwakIntent, type TwakPolicyConfig } from "@wardenclaw/twak-adapter";
@@ -59,6 +62,12 @@ export interface CandidateInput {
   isNonSpot?: boolean;
   /** Whether this candidate is the stable↔stable Micro-Scout. */
   isMicroScout?: boolean;
+  /**
+   * Recent per-token history (chronological). When present, catalyst candidates
+   * must clear the uncrowding checks (trending delta, volume expansion, no first
+   * spike) and rs_continuation must clear two-consecutive outperformance.
+   */
+  entryObservations?: SignalObservation[];
 }
 
 export interface PipelineContext {
@@ -135,6 +144,54 @@ export function evaluateCandidate(input: CandidateInput, ctx: PipelineContext): 
       economics: baseEconomics,
       governor: { sizeFraction: 0, bindingLayer: "n/a", remainingBudgetPct: 0 },
     };
+  }
+
+  // Family entry-quality gates (deterministic; the LLM touches none of this).
+  // Catalyst must be uncrowded (rising rank + fresh volume + post-spike continuation);
+  // rs_continuation must show two consecutive outperformance checks with rising volume.
+  if (!input.isMicroScout && input.entryObservations) {
+    if (input.signalFamily === "catalyst") {
+      const cat = evaluateCatalystEntry(input.entryObservations, {
+        trendingDeltaMin: ctx.config.trendingDeltaMin,
+        trendingTopN: ctx.config.trendingTopN,
+        volumeExpansionMin: ctx.config.volumeExpansionMin,
+        spikeCooldownChecks: ctx.config.spikeCooldownChecks,
+        maxRetracePct: ctx.config.maxRetracePct,
+        spikeMinPct: ctx.config.spikeMinPct,
+      });
+      if (!cat.pass) {
+        return {
+          symbol: input.symbol,
+          signalFamily: input.signalFamily,
+          score,
+          mode,
+          approved: false,
+          rejectCode: cat.rejectCode,
+          reasons: cat.reasons,
+          economics: baseEconomics,
+          governor: { sizeFraction: 0, bindingLayer: "n/a", remainingBudgetPct: 0 },
+        };
+      }
+      reasons.push(`catalyst entry: ${cat.reasons.join("; ")}`);
+    } else if (input.signalFamily === "rs_continuation") {
+      const rs = evaluateRsContinuation(input.entryObservations, {
+        rsOutperformMinBps: ctx.config.rsOutperformMinBps,
+      });
+      if (!rs.pass) {
+        return {
+          symbol: input.symbol,
+          signalFamily: input.signalFamily,
+          score,
+          mode,
+          approved: false,
+          rejectCode: rs.rejectCode,
+          reasons: rs.reasons,
+          economics: baseEconomics,
+          governor: { sizeFraction: 0, bindingLayer: "n/a", remainingBudgetPct: 0 },
+        };
+      }
+      reasons.push(`rs continuation: ${rs.reasons.join("; ")}`);
+    }
   }
 
   // Calibrated expected move + governor edge estimate.

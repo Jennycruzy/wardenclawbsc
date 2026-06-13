@@ -21,7 +21,7 @@ const perception = z.object({
 });
 
 const decision = z.object({
-  signalFamily: z.enum(["momentum", "catalyst", "scout", "safety"]),
+  signalFamily: z.enum(["momentum", "catalyst", "rs_continuation", "scout", "safety"]),
   tradeScore: z.number(),
   regime: z.string(),
   reason: z.array(z.string()),
