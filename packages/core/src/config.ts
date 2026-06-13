@@ -14,6 +14,9 @@ export interface RiskConfig {
   maxConcurrentPositions: number;
   perTradeRiskPct: number; // volatility-stop-derived sizing
   stopAtrMultiple: number;
+  breakevenTriggerAtr: number; // gain (in ATR) that arms the breakeven+fees ratchet
+  trailAtrMultiple: number; // normal trail distance below HWM (in ATR)
+  trailTightAtrMultiple: number; // tight (defend/red) trail distance below HWM (in ATR)
   maxPositionPct: number;
   attackNotionalMinUsd: number;
   microScoutUsd: number; // stable↔stable compliance trade
@@ -53,6 +56,9 @@ export const DEFAULT_RISK_CONFIG: RiskConfig = {
   maxConcurrentPositions: 1,
   perTradeRiskPct: 3,
   stopAtrMultiple: 1.5,
+  breakevenTriggerAtr: 1.0,
+  trailAtrMultiple: 1.5,
+  trailTightAtrMultiple: 1.0,
   maxPositionPct: 70,
   attackNotionalMinUsd: 15,
   microScoutUsd: 5,
@@ -120,6 +126,9 @@ export function loadRiskConfig(env: Record<string, string | undefined> = {}): Ri
     maxConcurrentPositions: num("MAX_CONCURRENT_POSITIONS", d.maxConcurrentPositions),
     perTradeRiskPct: num("PER_TRADE_RISK_PCT", d.perTradeRiskPct),
     stopAtrMultiple: num("STOP_ATR_MULTIPLE", d.stopAtrMultiple),
+    breakevenTriggerAtr: num("BREAKEVEN_TRIGGER_ATR", d.breakevenTriggerAtr),
+    trailAtrMultiple: num("TRAIL_ATR_MULTIPLE", d.trailAtrMultiple),
+    trailTightAtrMultiple: num("TRAIL_TIGHT_ATR_MULTIPLE", d.trailTightAtrMultiple),
     maxPositionPct: num("MAX_POSITION_PCT", d.maxPositionPct),
     attackNotionalMinUsd: num("ATTACK_NOTIONAL_MIN_USD", d.attackNotionalMinUsd),
     microScoutUsd: num("MICRO_SCOUT_USD", d.microScoutUsd),
