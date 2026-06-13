@@ -40,6 +40,16 @@ export interface RiskConfig {
   targetTradesPerDay: number;
   maxTradesPerDay: number;
 
+  // Week-schedule risk budget (HUNT/PRESS/DEFEND, leg-counting, win-first sizing)
+  weeklyLegBudget: number;
+  pressThresholdPct: number;
+  defendThresholdPct: number;
+  lockInReturnPct: number;
+  maxGiveBackPct: number;
+  pressSizeMultiplier: number;
+  defendSizeMultiplier: number;
+  lateWeekFraction: number;
+
   // Drawdown / survival — three layers
   competitionDqDrawdownPct: number; // disqualifier; 30% indicative, confirm with organizer
   internalWindowDrawdownPct: number; // the offense's actual risk budget
@@ -92,6 +102,15 @@ export const DEFAULT_RISK_CONFIG: RiskConfig = {
   minTradesPerDay: 1,
   targetTradesPerDay: 2,
   maxTradesPerDay: 3,
+
+  weeklyLegBudget: 14,
+  pressThresholdPct: 8,
+  defendThresholdPct: -3,
+  lockInReturnPct: 25,
+  maxGiveBackPct: 5,
+  pressSizeMultiplier: 1.3,
+  defendSizeMultiplier: 0.5,
+  lateWeekFraction: 0.7,
 
   competitionDqDrawdownPct: 30,
   internalWindowDrawdownPct: 15,
@@ -182,6 +201,15 @@ export function loadRiskConfig(env: Record<string, string | undefined> = {}): Ri
     minTradesPerDay: num("MIN_TRADES_PER_DAY", d.minTradesPerDay),
     targetTradesPerDay: num("TARGET_TRADES_PER_DAY", d.targetTradesPerDay),
     maxTradesPerDay: num("MAX_TRADES_PER_DAY", d.maxTradesPerDay),
+
+    weeklyLegBudget: num("WEEKLY_LEG_BUDGET", d.weeklyLegBudget),
+    pressThresholdPct: num("PRESS_THRESHOLD_PCT", d.pressThresholdPct),
+    defendThresholdPct: num("DEFEND_THRESHOLD_PCT", d.defendThresholdPct),
+    lockInReturnPct: num("LOCK_IN_RETURN_PCT", d.lockInReturnPct),
+    maxGiveBackPct: num("MAX_GIVE_BACK_PCT", d.maxGiveBackPct),
+    pressSizeMultiplier: num("PRESS_SIZE_MULTIPLIER", d.pressSizeMultiplier),
+    defendSizeMultiplier: num("DEFEND_SIZE_MULTIPLIER", d.defendSizeMultiplier),
+    lateWeekFraction: num("LATE_WEEK_FRACTION", d.lateWeekFraction),
 
     competitionDqDrawdownPct: num("COMPETITION_DQ_DRAWDOWN_PCT", d.competitionDqDrawdownPct),
     internalWindowDrawdownPct: num("INTERNAL_WINDOW_DRAWDOWN_PCT", d.internalWindowDrawdownPct),

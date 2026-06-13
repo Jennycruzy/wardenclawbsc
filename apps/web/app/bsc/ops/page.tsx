@@ -1,13 +1,20 @@
 import { BscShell } from "@/components/bscShell";
 import { Card, SectionTitle, Badge, Dot, KeyValue } from "@/components/ui";
-import { readBscEnv, readWatchHeartbeat } from "@/lib/data";
+import { readBscEnv, readWatchHeartbeat, readWeekBudget } from "@/lib/data";
 
 export const dynamic = "force-dynamic";
+
+const WEEK_STATE_TONE: Record<string, "pos" | "warn" | "accent"> = {
+  PRESS: "pos",
+  DEFEND: "warn",
+  HUNT: "accent",
+};
 
 /** Phone-first health view (§0.11). Reads live config + integration readiness. */
 export default function BscOps() {
   const env = readBscEnv();
   const watch = readWatchHeartbeat();
+  const week = readWeekBudget();
   const watchStaleMs = watch ? Date.now() - new Date(watch.lastBeatIso).getTime() : null;
   const watchHealthy = watchStaleMs !== null && watchStaleMs < 120_000;
 
@@ -61,6 +68,35 @@ export default function BscOps() {
             <p className="py-3 text-xs text-ink-faint">
               No watch heartbeat yet. The loop runs only while the worker is up; it watches open positions every{" "}
               <code className="font-mono">POSITION_WATCH_INTERVAL_SECONDS</code> and never opens trades or calls the LLM.
+            </p>
+          )}
+        </Card>
+
+        <Card>
+          <SectionTitle title="Week-schedule risk budget" subtitle="HUNT / PRESS / DEFEND — sizes risk across the competition week, not just per trade" />
+          {week ? (
+            <div className="space-y-1">
+              <div className="flex items-center justify-between border-b border-line/50 py-2.5">
+                <div className="flex items-center gap-2.5">
+                  <Dot tone={WEEK_STATE_TONE[week.riskState] ?? "neutral"} />
+                  <span className="text-sm">State</span>
+                </div>
+                <Badge tone={WEEK_STATE_TONE[week.riskState] ?? "neutral"}>
+                  {week.riskState} · size ×{week.sizeMultiplier}
+                </Badge>
+              </div>
+              <KeyValue k="Week return" v={`${week.weekReturnPct >= 0 ? "+" : ""}${week.weekReturnPct.toFixed(1)}%`} />
+              <KeyValue k="Week elapsed" v={`${week.weekElapsedPct.toFixed(0)}%`} />
+              <KeyValue
+                k="Legs"
+                v={`${week.legsUsed} used · ${week.legsRemaining} left${week.legsScarce ? " (scarce)" : ""}`}
+              />
+              <p className="pt-2 text-xs text-ink-faint">{week.reason}</p>
+            </div>
+          ) : (
+            <p className="py-3 text-xs text-ink-faint">
+              No week-budget snapshot yet. The worker writes it each decision cycle; the size multiplier is bounded by{" "}
+              <code className="font-mono">MAX_POSITION_PCT</code> and the volatility stop, so PRESS never breaches the caps.
             </p>
           )}
         </Card>

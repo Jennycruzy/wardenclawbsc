@@ -150,6 +150,30 @@ export function readWatchHeartbeat(): WatchHeartbeat | null {
   }
 }
 
+// ---- Week-schedule risk budget (WS6) --------------------------------------
+
+export interface WeekBudgetSnapshot {
+  lastBeatIso: string;
+  riskState: "HUNT" | "PRESS" | "DEFEND";
+  sizeMultiplier: number;
+  weekReturnPct: number;
+  weekElapsedPct: number;
+  legsUsed: number;
+  legsRemaining: number;
+  legsScarce: boolean;
+  reason: string;
+}
+
+export function readWeekBudget(): WeekBudgetSnapshot | null {
+  const f = join(RUNTIME_DIR, "week-budget.json");
+  if (!existsSync(f)) return null;
+  try {
+    return JSON.parse(readFileSync(f, "utf8")) as WeekBudgetSnapshot;
+  } catch {
+    return null;
+  }
+}
+
 // ---- Environment / mode readouts -----------------------------------------
 
 export interface BscEnv {

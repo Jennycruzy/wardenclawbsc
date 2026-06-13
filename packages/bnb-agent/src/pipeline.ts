@@ -27,6 +27,7 @@ import {
   type CalibrationReport,
   type EligibleAllowlist,
   type RiskConfig,
+  type RiskState,
   type SignalFamily,
   type SignalObservation,
 } from "@wardenclaw/core";
@@ -87,6 +88,12 @@ export interface PipelineContext {
   /** Measured real round-trip cost (Wallet Ledger). Falls back to the modeled
    *  real friction at size when undefined (e.g. before the first real fill). */
   realRoundTripBps?: number;
+  /** WS6 week-schedule risk budget: multiplier on the governor's allowed size
+   *  (PRESS >1, DEFEND <1, HUNT 1). Bounded downstream by maxPositionPct and the
+   *  volatility-stop size, so it can never breach the hard caps. Defaults to 1. */
+  sizeMultiplier?: number;
+  /** The risk state that produced `sizeMultiplier` (for the audit trail). */
+  riskState?: RiskState;
 }
 
 export interface PipelineResult {
@@ -113,6 +120,9 @@ export interface PipelineResult {
     positionSizeUsd: number;
   };
   governor: { sizeFraction: number; bindingLayer: string; remainingBudgetPct: number };
+  /** WS6 week-schedule risk state and the size multiplier it imposed. */
+  riskState?: RiskState;
+  sizeMultiplier?: number;
   intent?: TwakIntent;
 }
 
@@ -209,7 +219,13 @@ export function evaluateCandidate(input: CandidateInput, ctx: PipelineContext): 
     edgeEstimate: edge,
     maxPositionFraction: ctx.config.maxPositionPct / 100,
   });
-  const governorCapUsd = governor.sizeFraction * ctx.deployableUsd;
+  // WS6 week budget scales the governor's allowed size (PRESS up / DEFEND down);
+  // maxPositionPct and the volatility-stop size still bind downstream.
+  const sizeMultiplier = ctx.sizeMultiplier ?? 1;
+  const governorCapUsd = governor.sizeFraction * ctx.deployableUsd * sizeMultiplier;
+  if (!input.isMicroScout && ctx.riskState && sizeMultiplier !== 1) {
+    reasons.push(`week budget ${ctx.riskState}: size ×${sizeMultiplier}`);
+  }
 
   // Friction-at-notional model from real reserves + gas + simulated scoring cost.
   const estimateFrictionBps = (notionalUsd: number): number => {
@@ -420,6 +436,8 @@ export function evaluateCandidate(input: CandidateInput, ctx: PipelineContext): 
     reasons,
     economics,
     governor: { sizeFraction: governor.sizeFraction, bindingLayer: governor.bindingLayer, remainingBudgetPct: governor.remainingBudgetPct },
+    riskState: input.isMicroScout ? undefined : ctx.riskState,
+    sizeMultiplier: input.isMicroScout ? undefined : sizeMultiplier,
     intent,
   };
 }
