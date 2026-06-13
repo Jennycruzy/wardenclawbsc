@@ -53,6 +53,8 @@ import {
 import {
   CliTwakExecutor,
   PolicyEnforcingExecutor,
+  payX402InLoop,
+  chooseX402Path,
   type TwakPolicyConfig,
   type TwakIntent,
 } from "@wardenclaw/twak-adapter";
@@ -247,18 +249,34 @@ async function main(): Promise<void> {
   const reader = new LiveBscReader({ rpcUrls });
   await reader.assertChain();
 
-  // Real CMC x402 client (USDC on Base) — pays per request in the loop when funded.
-  const x402 = process.env.X402_PRIVATE_KEY ? new CmcX402Client() : null;
+  // Real TWAK signer (the only thing that signs) — live mode only. Keep the inner
+  // CLI executor for TWAK-native x402 (payX402 needs no swap policy).
+  const twakCli = mode === "live" ? new CliTwakExecutor({ tokens: loaded.tokens }) : null;
+  const executor = twakCli
+    ? new PolicyEnforcingExecutor(twakCli, loaded.allowlist, twakPolicy)
+    : null;
 
-  // Real TWAK signer (the only thing that signs) — live mode only.
-  const executor =
-    mode === "live"
-      ? new PolicyEnforcingExecutor(
-          new CliTwakExecutor({ tokens: loaded.tokens }),
-          loaded.allowlist,
-          twakPolicy,
-        )
-      : null;
+  // x402 path: TWAK-first (native x402 + self-custody integrity for the rubric).
+  // The viem CmcX402Client is a clearly-labeled fallback, only behind
+  // X402_FALLBACK_VIEM with a raw Base key present.
+  const x402Path = chooseX402Path({
+    twakConfigured: Boolean(twakCli),
+    fallbackViemEnabled: process.env.X402_FALLBACK_VIEM === "true",
+    viemKeyPresent: Boolean(process.env.X402_PRIVATE_KEY),
+  });
+  const viemX402 = x402Path === "viem_fallback" ? new CmcX402Client() : null;
+  const x402Required = process.env.X402_REQUIRED === "true";
+  const x402Url = `${(process.env.CMC_X402_ENDPOINT ?? "https://pro-api.coinmarketcap.com").replace(/\/$/, "")}/x402/v1/dex/search?q=bnb`;
+  if (x402Path === "viem_fallback") {
+    console.warn("[worker] x402 path: viem_fallback (non-TWAK) — raw Base key signing. Unset X402_FALLBACK_VIEM to require TWAK x402.");
+  } else if (x402Path === "none" && x402Required) {
+    console.error("[worker] x402 REQUIRED but no path available (no TWAK live signer, viem fallback off) — trades will be BLOCKED.");
+    await sendAlert(process.env.ALERT_WEBHOOK_URL, {
+      reason: "execution_failure",
+      message: "x402 required by config but no path available — trades blocked until TWAK x402 is live or the viem fallback is enabled.",
+      timestamp: new Date().toISOString(),
+    });
+  }
 
   // Optional: register the agent identity on-chain via the BNB AI Agent SDK sidecar.
   if (process.env.BNB_SDK_REGISTER === "true") {
@@ -443,27 +461,60 @@ async function main(): Promise<void> {
       const gasPerLegUsd = bnbPrice > 0 ? await reader.gasPerLegUsd(bnbPrice) : 0.02;
 
       // x402-in-the-loop: pay for a CMC x402 request used in this decision cycle.
+      // TWAK-first; viem only as a labeled fallback. Failure may block trades.
       let x402ReceiptId: string | undefined;
-      if (x402) {
+      let x402PathUsed: "twak" | "viem_fallback" | undefined;
+      let x402Failed = false;
+      if (x402Path === "twak" && twakCli) {
         try {
-          const paid = await x402.get("/x402/v1/dex/search", { q: "bnb" });
-          x402ReceiptId = paid.receipt.receipt;
+          const receipt = await payX402InLoop(twakCli, {
+            url: x402Url,
+            maxAmount: process.env.X402_MAX_PAYMENT_ATOMIC ?? "10000",
+            asset: process.env.X402_ASSET ?? "",
+            mandateId: `x402-c${cycles}`,
+          });
+          x402ReceiptId = receipt.receipt;
+          x402PathUsed = "twak";
           await audit.append({
             timestamp: new Date().toISOString(),
             mandateId: `x402-c${cycles}`,
             stage: "perception",
-            input: { url: paid.receipt.requestUrl },
+            input: { url: receipt.requestUrl, path: "twak" },
+            output: { paid: true, receipt: receipt.receipt },
+            proofAnchors: { x402Receipt: receipt.receipt },
+          });
+        } catch (err) {
+          x402Failed = true;
+          await sendAlert(process.env.ALERT_WEBHOOK_URL, {
+            reason: "execution_failure",
+            message: `TWAK x402 payment failed: ${(err as Error).message}`,
+            timestamp: new Date().toISOString(),
+          });
+        }
+      } else if (x402Path === "viem_fallback" && viemX402) {
+        try {
+          const paid = await viemX402.get("/x402/v1/dex/search", { q: "bnb" });
+          x402ReceiptId = paid.receipt.receipt;
+          x402PathUsed = "viem_fallback";
+          await audit.append({
+            timestamp: new Date().toISOString(),
+            mandateId: `x402-c${cycles}`,
+            stage: "perception",
+            input: { url: paid.receipt.requestUrl, path: "viem_fallback (non-TWAK)" },
             output: { paid: true, receipt: paid.receipt.receipt },
             proofAnchors: { x402Receipt: paid.receipt.receipt },
           });
         } catch (err) {
+          x402Failed = true;
           await sendAlert(process.env.ALERT_WEBHOOK_URL, {
             reason: "execution_failure",
-            message: `x402 payment failed: ${(err as Error).message}`,
+            message: `x402 (viem fallback) payment failed: ${(err as Error).message}`,
             timestamp: new Date().toISOString(),
           });
         }
       }
+      // If x402 is required by config but unavailable or failed, block trades.
+      const x402Blocks = x402Required && (x402Path === "none" || x402Failed);
 
       const ctx: PipelineContext = {
         config,
@@ -563,11 +614,20 @@ async function main(): Promise<void> {
           createdAt: new Date().toISOString(),
           id: `${runId}-c${cycles}-${e.token.symbol}`,
           x402Receipt: x402ReceiptId,
+          x402Path: x402PathUsed,
         });
         if (e.result.approved) approved++;
 
         // Live execution: the winner is signed by TWAK (the sole signer).
-        if (isWinner && executor && e.result.intent) {
+        // Blocked when x402 is required by config but unavailable/failed this cycle.
+        if (isWinner && executor && e.result.intent && x402Blocks) {
+          await sendAlert(process.env.ALERT_WEBHOOK_URL, {
+            reason: "execution_failure",
+            message: `Trade ${e.token.symbol} blocked: x402 required but ${x402Path === "none" ? "no path available" : "payment failed"} this cycle.`,
+            timestamp: new Date().toISOString(),
+          });
+          console.warn(`[worker] ${e.token.symbol} blocked — x402 required but unavailable/failed.`);
+        } else if (isWinner && executor && e.result.intent) {
           try {
             const outcome = await executor.execute(e.result.intent, { spentTodayUsd });
             if (outcome.refused) {

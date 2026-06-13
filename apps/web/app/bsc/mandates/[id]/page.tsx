@@ -77,6 +77,10 @@ export default function BscMandateDetail({ params }: { params: { id: string } })
             <KeyValue k="BSC tx" v={m.proofAnchors.bscTxHash ?? "—"} mono />
             <KeyValue k="TWAK receipt" v={m.proofAnchors.twakReceipt ?? "—"} mono />
             <KeyValue k="x402 receipt" v={m.proofAnchors.x402Receipt ?? "—"} mono />
+            <KeyValue
+              k="x402 path"
+              v={m.proofAnchors.x402Path === "twak" ? "TWAK (native)" : m.proofAnchors.x402Path === "viem_fallback" ? "viem_fallback (non-TWAK)" : "—"}
+            />
             <KeyValue k="Integrity" v={<Badge tone="accent">JSONL hash chain</Badge>} />
           </div>
         </div>

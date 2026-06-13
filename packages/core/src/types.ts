@@ -135,6 +135,8 @@ export interface MandateProofAnchors {
   bscTxHash?: string;
   twakReceipt?: string;
   x402Receipt?: string;
+  /** Which x402 path settled the payment — never label the viem fallback as TWAK. */
+  x402Path?: "twak" | "viem_fallback";
   cmcRequestId?: string;
   bitgetRequestId?: string;
   paperFillSource?: string;
