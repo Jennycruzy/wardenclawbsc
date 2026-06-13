@@ -21,6 +21,11 @@ export interface RiskConfig {
   attackNotionalMinUsd: number;
   microScoutUsd: number; // stable↔stable compliance trade
 
+  // Fast position-watch loop (protection cadence, only while a position is open)
+  positionWatchIntervalSeconds: number;
+  watchStalenessLimitSeconds: number;
+  watchStalenessAction: "alert_only" | "reduce";
+
   // Trade frequency (verified minimum: 1/day, 7/week)
   minTradesPerDay: number;
   targetTradesPerDay: number;
@@ -62,6 +67,10 @@ export const DEFAULT_RISK_CONFIG: RiskConfig = {
   maxPositionPct: 70,
   attackNotionalMinUsd: 15,
   microScoutUsd: 5,
+
+  positionWatchIntervalSeconds: 45,
+  watchStalenessLimitSeconds: 180,
+  watchStalenessAction: "alert_only",
 
   minTradesPerDay: 1,
   targetTradesPerDay: 2,
@@ -118,6 +127,14 @@ export function loadRiskConfig(env: Record<string, string | undefined> = {}): Ri
     if (raw === undefined || raw === "") return fallback;
     return raw === "true" || raw === "1";
   };
+  const oneOf = <T extends string>(key: string, allowed: readonly T[], fallback: T): T => {
+    const raw = env[key];
+    if (raw === undefined || raw === "") return fallback;
+    if (!allowed.includes(raw as T)) {
+      throw new Error(`Invalid env ${key}=${raw} (expected one of ${allowed.join(", ")})`);
+    }
+    return raw as T;
+  };
 
   const d = DEFAULT_RISK_CONFIG;
   return {
@@ -132,6 +149,10 @@ export function loadRiskConfig(env: Record<string, string | undefined> = {}): Ri
     maxPositionPct: num("MAX_POSITION_PCT", d.maxPositionPct),
     attackNotionalMinUsd: num("ATTACK_NOTIONAL_MIN_USD", d.attackNotionalMinUsd),
     microScoutUsd: num("MICRO_SCOUT_USD", d.microScoutUsd),
+
+    positionWatchIntervalSeconds: num("POSITION_WATCH_INTERVAL_SECONDS", d.positionWatchIntervalSeconds),
+    watchStalenessLimitSeconds: num("WATCH_STALENESS_LIMIT_SECONDS", d.watchStalenessLimitSeconds),
+    watchStalenessAction: oneOf("WATCH_STALENESS_ACTION", ["alert_only", "reduce"] as const, d.watchStalenessAction),
 
     minTradesPerDay: num("MIN_TRADES_PER_DAY", d.minTradesPerDay),
     targetTradesPerDay: num("TARGET_TRADES_PER_DAY", d.targetTradesPerDay),

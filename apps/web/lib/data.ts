@@ -30,6 +30,7 @@ function findRepoRoot(): string {
 
 const ROOT = findRepoRoot();
 const AUDIT_DIR = join(ROOT, "data", "audit");
+const RUNTIME_DIR = join(ROOT, "data", "runtime");
 
 function listFiles(dir: string, suffix: string): string[] {
   if (!existsSync(dir)) return [];
@@ -128,6 +129,25 @@ export function loadHourlySnapshots(): HourlySnapshotRow[] {
   }
   rows.sort((a, b) => (a.hourIso < b.hourIso ? -1 : 1));
   return rows;
+}
+
+// ---- Fast watch loop heartbeat --------------------------------------------
+
+export interface WatchHeartbeat {
+  lastBeatIso: string;
+  watching: boolean;
+  openPositions: number;
+  lastError?: string;
+}
+
+export function readWatchHeartbeat(): WatchHeartbeat | null {
+  const f = join(RUNTIME_DIR, "watch-heartbeat.json");
+  if (!existsSync(f)) return null;
+  try {
+    return JSON.parse(readFileSync(f, "utf8")) as WatchHeartbeat;
+  } catch {
+    return null;
+  }
 }
 
 // ---- Environment / mode readouts -----------------------------------------

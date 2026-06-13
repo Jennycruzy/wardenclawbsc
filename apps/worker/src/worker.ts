@@ -25,9 +25,15 @@ import {
   loadRiskConfig,
   reconcile,
   valueHoldings,
+  initTrailingStop,
+  evaluateWatchTick,
+  serializeOpenPositions,
+  parseOpenPositions,
   type CalibrationReport,
   type PendingMandate,
   type Holding,
+  type OpenPosition,
+  type TrailingStopConfig,
 } from "@wardenclaw/core";
 import { CmcClient, CmcX402Client, buildMomentumInputs } from "@wardenclaw/cmc-adapter";
 import {
@@ -48,6 +54,7 @@ import {
   CliTwakExecutor,
   PolicyEnforcingExecutor,
   type TwakPolicyConfig,
+  type TwakIntent,
 } from "@wardenclaw/twak-adapter";
 
 function repoRoot(): string {
@@ -69,6 +76,13 @@ const AUDIT_DIR = join(ROOT, "data", "audit");
 const config = loadRiskConfig(process.env as Record<string, string | undefined>);
 const intervalMs = Number(process.env.WORKER_INTERVAL_SECONDS ?? "300") * 1000;
 const maxCycles = Number(process.env.WORKER_MAX_CYCLES ?? "0");
+const watchIntervalMs = config.positionWatchIntervalSeconds * 1000;
+const trailConfig: TrailingStopConfig = {
+  stopAtrMultiple: config.stopAtrMultiple,
+  breakevenTriggerAtr: config.breakevenTriggerAtr,
+  trailAtrMultiple: config.trailAtrMultiple,
+  trailTightAtrMultiple: config.trailTightAtrMultiple,
+};
 
 function killEngaged(): boolean {
   const f = join(RUNTIME_DIR, "kill.flag.json");
@@ -97,6 +111,29 @@ function loadPending(): PendingMandate[] {
   } catch {
     return [];
   }
+}
+
+const POSITIONS_FILE = join(RUNTIME_DIR, "positions.json");
+
+/** Restore open positions (with live HWM/stop) so the trail resumes after a restart. */
+function loadOpenPositions(): OpenPosition[] {
+  if (!existsSync(POSITIONS_FILE)) return [];
+  return parseOpenPositions(readFileSync(POSITIONS_FILE, "utf8")); // throws loud on corruption
+}
+
+function saveOpenPositions(positions: OpenPosition[]): void {
+  mkdirSync(RUNTIME_DIR, { recursive: true });
+  writeFileSync(POSITIONS_FILE, serializeOpenPositions(positions), "utf8");
+}
+
+/** Heartbeat for the fast watch loop — surfaced on /bsc/ops. */
+function writeWatchHeartbeat(state: { watching: boolean; openPositions: number; lastError?: string }): void {
+  mkdirSync(RUNTIME_DIR, { recursive: true });
+  writeFileSync(
+    join(RUNTIME_DIR, "watch-heartbeat.json"),
+    JSON.stringify({ lastBeatIso: new Date().toISOString(), ...state }),
+    "utf8",
+  );
 }
 
 function seedCalibration(): CalibrationReport {
@@ -171,6 +208,19 @@ async function main(): Promise<void> {
     });
   }
 
+  // Restore open positions (with live HWM/stop) so the trail resumes exactly.
+  const openPositions = loadOpenPositions();
+  const lastPriceMs = new Map<string, number>();
+  for (const p of openPositions) lastPriceMs.set(p.mandateId, Date.now());
+  if (openPositions.length > 0) {
+    await sendAlert(process.env.ALERT_WEBHOOK_URL, {
+      reason: "restart_recovery",
+      message: `Resuming trail watch on ${openPositions.length} open position(s): ${openPositions.map((p) => p.symbol).join(", ")}.`,
+      timestamp: new Date().toISOString(),
+    });
+    console.log(`[worker] resuming watch on ${openPositions.length} open position(s).`);
+  }
+
   const cmc = new CmcClient();
   const loaded = loadEligibleTokens(process.env.ELIGIBLE_TOKENS_PATH ?? "data/eligible-tokens.json");
   const calibration = seedCalibration();
@@ -227,6 +277,143 @@ async function main(): Promise<void> {
       console.warn(`[worker] BNB SDK registration failed (continuing): ${(err as Error).message}`);
     }
   }
+
+  const usdtAddress = usdt.bscContractAddress;
+  const usdtDecimals = usdt.decimals;
+
+  /** Fetch the held token's price in USD (≈ USDT) via the live quoter. */
+  async function fetchTokenPriceUsd(pos: OpenPosition): Promise<number> {
+    const token = loaded.tokens.find(
+      (t) => t.bscContractAddress.toLowerCase() === pos.tokenOutAddress.toLowerCase(),
+    );
+    if (!token) throw new Error(`held token not in eligible set: ${pos.tokenOutAddress}`);
+    const q = await reader.getAmountOut(
+      token.bscContractAddress,
+      usdtAddress,
+      1,
+      token.decimals,
+      usdtDecimals,
+    );
+    return q.amountOut; // USDT out for 1 token ≈ USD price
+  }
+
+  /** One pass over all open positions: ratchet trails, fire safety exits on breach. */
+  async function watchAllPositions(): Promise<void> {
+    for (const pos of [...openPositions]) {
+      let price: { fresh: true; price: number } | { fresh: false; secondsSinceLastPrice: number };
+      try {
+        const p = await fetchTokenPriceUsd(pos);
+        lastPriceMs.set(pos.mandateId, Date.now());
+        price = { fresh: true, price: p };
+      } catch {
+        const last = lastPriceMs.get(pos.mandateId) ?? Date.now();
+        price = { fresh: false, secondsSinceLastPrice: (Date.now() - last) / 1000 };
+      }
+
+      const tick = evaluateWatchTick({
+        trail: pos.trail,
+        price,
+        config: trailConfig,
+        stalenessLimitSeconds: config.watchStalenessLimitSeconds,
+        stalenessAction: config.watchStalenessAction,
+        tightMode: pos.trail.tightMode,
+      });
+
+      if (tick.action === "stale") {
+        await sendAlert(process.env.ALERT_WEBHOOK_URL, {
+          reason: "execution_failure",
+          message: `Watch loop blind on ${pos.symbol} for ${tick.stale!.secondsSinceLastPrice.toFixed(0)}s (>${config.watchStalenessLimitSeconds}s). Armed: ${tick.stale!.action}.`,
+          timestamp: new Date().toISOString(),
+        });
+        continue;
+      }
+
+      if (tick.updatedTrail) pos.trail = tick.updatedTrail;
+
+      if (tick.action === "exit" && tick.exit) {
+        // Forced safety exit through TWAK: sell the held token back to the stable.
+        // This bypasses the net-edge gate by construction (it never runs it) but the
+        // TWAK policy still enforces chain/router/eligibility/slippage before signing.
+        const exitIntent: TwakIntent = {
+          kind: "swap",
+          chainId: 56,
+          executionType: "spot_only",
+          router: "pancakeswap",
+          spender: PANCAKE_V2_ROUTER,
+          to: PANCAKE_V2_ROUTER,
+          tokenInAddress: pos.tokenOutAddress, // held token
+          tokenOutAddress: pos.tokenInAddress, // stable (USDT)
+          amountInUsd: pos.notionalUsd,
+          txValueWei: "0",
+          isInfiniteApproval: false,
+          approvalAmount: pos.notionalUsd,
+          mandateAmount: pos.notionalUsd,
+          slippageBps: config.maxSlippageBps,
+          isNonSpot: false,
+          decodedAction: "exit",
+          mandateAction: "exit",
+          mandateId: pos.mandateId,
+        };
+        try {
+          const outcome = executor ? await executor.execute(exitIntent, { spentTodayUsd: 0 }) : null;
+          await audit.append({
+            timestamp: new Date().toISOString(),
+            mandateId: pos.mandateId,
+            stage: "watchdog",
+            input: {
+              reason: tick.exit.reason,
+              entryPrice: tick.exit.entryPrice,
+              highWaterMark: tick.exit.highWaterMark,
+              exitPrice: tick.exit.currentPrice,
+              stopPrice: tick.exit.stopPrice,
+              gainPct: tick.exit.gainPct,
+            },
+            output: outcome?.receipt
+              ? { status: "submitted", txHash: outcome.receipt.txHash }
+              : { status: outcome?.refused ? "refused" : "dry", detail: outcome?.policy?.reason },
+            proofAnchors: outcome?.receipt
+              ? { bscTxHash: outcome.receipt.txHash, twakReceipt: outcome.receipt.twakReceiptId }
+              : undefined,
+          });
+          if (outcome?.refused) {
+            await sendAlert(process.env.ALERT_WEBHOOK_URL, {
+              reason: "twak_refusal",
+              message: `TWAK refused safety exit on ${pos.symbol}: ${outcome.policy.reason}`,
+              timestamp: new Date().toISOString(),
+            });
+            continue; // keep watching — do not drop a position we failed to exit
+          }
+          console.log(`[worker] ${tick.exit.reason} ${pos.symbol} @ ${tick.exit.currentPrice} (gain ${tick.exit.gainPct.toFixed(2)}%)`);
+        } catch (err) {
+          await sendAlert(process.env.ALERT_WEBHOOK_URL, {
+            reason: "execution_failure",
+            message: `Safety exit failed for ${pos.symbol}: ${(err as Error).message}`,
+            timestamp: new Date().toISOString(),
+          });
+          continue; // retry next tick; never silently drop
+        }
+        // Exit submitted (or dry): stop tracking this position.
+        const idx = openPositions.findIndex((p) => p.mandateId === pos.mandateId);
+        if (idx >= 0) openPositions.splice(idx, 1);
+        lastPriceMs.delete(pos.mandateId);
+      }
+    }
+    saveOpenPositions(openPositions);
+  }
+
+  async function runWatchLoop(): Promise<void> {
+    for (;;) {
+      try {
+        if (openPositions.length > 0) await watchAllPositions();
+        writeWatchHeartbeat({ watching: openPositions.length > 0, openPositions: openPositions.length });
+      } catch (err) {
+        writeWatchHeartbeat({ watching: openPositions.length > 0, openPositions: openPositions.length, lastError: (err as Error).message });
+      }
+      if (killEngaged()) break;
+      await sleep(watchIntervalMs);
+    }
+  }
+  void runWatchLoop();
 
   let spentTodayUsd = 0;
   let cycles = 0;
@@ -287,7 +474,7 @@ async function main(): Promise<void> {
         deployableUsd: config.startingCapitalUsd - config.gasReserveUsd,
         windowDrawdownPct: 0,
         dailyDrawdownPct: 0,
-        openPositions: 0,
+        openPositions: openPositions.length,
         tradesToday: 0,
         survivalMode: false,
         marketDataStale: false,
@@ -300,6 +487,8 @@ async function main(): Promise<void> {
         token: (typeof loaded.tokens)[number];
         tools: string[];
         ts: string;
+        price: number;
+        atrPct: number;
       }> = [];
       for (const quote of quotes.data) {
         const token = loaded.tokens.find((t) => t.symbol === quote.symbol);
@@ -343,7 +532,14 @@ async function main(): Promise<void> {
           },
           ctx,
         );
-        evaluated.push({ result, token, tools: momentum.toolsUsed, ts: quote.lastUpdated });
+        evaluated.push({
+          result,
+          token,
+          tools: momentum.toolsUsed,
+          ts: quote.lastUpdated,
+          price: quote.priceUsd,
+          atrPct: Math.max(0.02, Math.abs(quote.percentChange24h) / 100),
+        });
       }
 
       // Rank approved candidates; the top one is the trade for this cycle.
@@ -386,6 +582,25 @@ async function main(): Promise<void> {
               mandate.execution.txHash = outcome.receipt.txHash;
               mandate.proofAnchors.bscTxHash = outcome.receipt.txHash;
               mandate.proofAnchors.twakReceipt = outcome.receipt.twakReceiptId;
+              // Open a tracked position so the fast watch loop trails it immediately.
+              const trail = initTrailingStop({
+                entryPrice: e.price,
+                atrPct: e.atrPct,
+                realRoundTripBps: e.result.economics.realRoundTripBps ?? e.result.economics.realFrictionBps,
+                config: trailConfig,
+              });
+              openPositions.push({
+                mandateId: mandate.id,
+                symbol: e.token.symbol,
+                tokenInAddress: usdt.bscContractAddress,
+                tokenOutAddress: e.token.bscContractAddress,
+                amountTokens: e.price > 0 ? e.result.economics.positionSizeUsd / e.price : 0,
+                notionalUsd: e.result.economics.positionSizeUsd,
+                openedAtIso: new Date().toISOString(),
+                trail,
+              });
+              lastPriceMs.set(mandate.id, Date.now());
+              saveOpenPositions(openPositions);
               await audit.append({
                 timestamp: new Date().toISOString(),
                 mandateId: mandate.id,
