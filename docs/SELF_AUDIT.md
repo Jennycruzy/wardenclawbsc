@@ -58,7 +58,7 @@ TWAK-only, eligible-contracts-only). Each row: file + passing test as evidence.
 | WS | Requirement | Status | Evidence |
 |---|---|---|---|
 | 1 | Two ledgers: Scored (sim cost → net-edge gate) vs Wallet (measured real round-trip → wallet floor); changing `SCORING_SIM_COST_BPS` alone retunes the gate; both on every mandate | implemented | `scoredCost.ts`, `ledgers.ts`, `netEdgeGate.ts` (scored gate + `REJECT_WALLET_FLOOR`), `riskConstitution.ts`, `pipeline.ts`/`mandate.ts`; tests: `economics.test.ts` (wallet-floor a/b), `ledgers.test.ts` (cost model c + rolling estimate), `riskGates.test.ts` (wallet floor), `pipeline.test.ts` (both ledgers on mandate d); `/bsc/proof` shows move/scored/wallet |
-| 2 | Trailing-stop ratchet | pending | — |
+| 2 | Trailing-stop ratchet: per-position HWM, initial vol stop → breakeven+fees at `BREAKEVEN_TRIGGER_ATR` → trail `TRAIL_ATR_MULTIPLE` below HWM, ratchet-up-only, tighten mode; breach = forced exit (bypasses net-edge, not slippage); HWM/stop persisted + restored on restart | implemented | `trailingStop.ts`, `positionStore.ts`, config `BREAKEVEN_TRIGGER_ATR`/`TRAIL_ATR_MULTIPLE`/`TRAIL_TIGHT_ATR_MULTIPLE`; tests `trailingStop.test.ts` (never widens a/b/c, +9%→reversal exits green d, restart-restore e, EXIT_STOP vs EXIT_TRAIL_RATCHET); net-edge bypass `economics.test.ts`, slippage always enforced `twak policy.test.ts` (f). Watch-loop firing wired in WS3 |
 | 3 | Fast position-watch loop | pending | — |
 | 4 | x402 through TWAK (custody) | pending | — |
 | 5 | Entry quality + rs_continuation | pending | — |
