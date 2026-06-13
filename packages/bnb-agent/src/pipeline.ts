@@ -12,6 +12,7 @@
 import {
   bscScoreMode,
   computeFriction,
+  computeScoredFrictionBps,
   evaluateGovernor,
   evaluateNetEdge,
   evaluateRiskGates,
@@ -74,6 +75,9 @@ export interface PipelineContext {
   survivalMode: boolean;
   marketDataStale: boolean;
   calibrationStale: boolean;
+  /** Measured real round-trip cost (Wallet Ledger). Falls back to the modeled
+   *  real friction at size when undefined (e.g. before the first real fill). */
+  realRoundTripBps?: number;
 }
 
 export interface PipelineResult {
@@ -89,6 +93,10 @@ export interface PipelineResult {
     frictionBps: number;
     realFrictionBps: number;
     simulatedCostBps: number;
+    scoredFrictionBps: number;
+    realRoundTripBps?: number;
+    walletFloorBps?: number;
+    walletFloorPassed?: boolean;
     netEdgePassed: boolean;
     stopDistancePct?: number;
     stopCoherencePassed?: boolean;
@@ -109,6 +117,7 @@ export function evaluateCandidate(input: CandidateInput, ctx: PipelineContext): 
     frictionBps: 0,
     realFrictionBps: 0,
     simulatedCostBps: 0,
+    scoredFrictionBps: 0,
     netEdgePassed: false,
     positionSizeUsd: 0,
   };
@@ -215,6 +224,15 @@ export function evaluateCandidate(input: CandidateInput, ctx: PipelineContext): 
     scoringSimCostBps: ctx.config.scoringSimCostBps,
   });
 
+  // Two ledgers: scored friction (competition cost, drives net-edge) and the
+  // measured real round-trip (Wallet Ledger, drives the wallet floor). Real cost
+  // falls back to the modeled real friction at size until a real fill is measured.
+  const scoredFrictionBps = computeScoredFrictionBps({
+    notionalUsd: Math.max(positionSizeUsd, 1),
+    scoringSimCostBps: ctx.config.scoringSimCostBps,
+  });
+  const realRoundTripBps = ctx.realRoundTripBps ?? friction.realFrictionBps;
+
   // Shadow-fill deviation (modeled from reserves when not supplied).
   const shadow = input.shadow ?? { expectedOut: 1, simulatedOut: 1 };
   const shadowResult = evaluateShadowFill({
@@ -222,6 +240,16 @@ export function evaluateCandidate(input: CandidateInput, ctx: PipelineContext): 
     simulatedOut: shadow.simulatedOut,
     toleranceBps: ctx.config.shadowFillToleranceBps,
   });
+
+  const netEdge = input.isMicroScout
+    ? undefined
+    : evaluateNetEdge({
+        expectedMoveBps,
+        scoredFrictionBps,
+        netEdgeMinBps: ctx.config.netEdgeMinBps,
+        realRoundTripBps,
+        walletFloorFraction: ctx.config.walletFloorFraction,
+      });
 
   // Risk Constitution.
   const riskGate = evaluateRiskGates(
@@ -237,7 +265,8 @@ export function evaluateCandidate(input: CandidateInput, ctx: PipelineContext): 
       isNonSpot: input.isNonSpot ?? false,
       notionalUsd: positionSizeUsd,
       expectedMoveBps,
-      frictionBps: friction.frictionBps,
+      scoredFrictionBps,
+      realRoundTripBps,
       shadowFill: shadow,
       isMicroScout: input.isMicroScout,
     },
@@ -263,9 +292,11 @@ export function evaluateCandidate(input: CandidateInput, ctx: PipelineContext): 
     frictionBps: friction.frictionBps,
     realFrictionBps: friction.realFrictionBps,
     simulatedCostBps: friction.simulatedCostBps,
-    netEdgePassed: input.isMicroScout
-      ? true
-      : evaluateNetEdge({ expectedMoveBps, frictionBps: friction.frictionBps, netEdgeMinBps: ctx.config.netEdgeMinBps }).passed,
+    scoredFrictionBps,
+    realRoundTripBps,
+    walletFloorBps: netEdge?.walletFloorBps,
+    walletFloorPassed: netEdge?.walletFloorPassed,
+    netEdgePassed: input.isMicroScout ? true : (netEdge?.passed ?? false),
     stopDistancePct,
     stopCoherencePassed,
     shadowFillDeviationBps: shadowResult.deviationBps,

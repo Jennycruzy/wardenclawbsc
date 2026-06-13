@@ -24,6 +24,7 @@ function sampleMandate(id: string): SignalMandate {
       frictionBps: 0,
       realFrictionBps: 0,
       simulatedCostBps: 0,
+      scoredFrictionBps: 0,
       expectedMoveBps: 0,
       netEdgePassed: false,
     },

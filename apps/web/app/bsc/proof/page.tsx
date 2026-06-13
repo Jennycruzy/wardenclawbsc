@@ -110,7 +110,7 @@ export default function BscProof() {
       </div>
 
       <div className="mt-3">
-        <SectionTitle title="Trade ledger" subtitle="Every approved mandate with its CMC trigger and proof anchors" />
+        <SectionTitle title="Trade ledger" subtitle="Two ledgers per trade — scored (competition simulated cost) drives the gate; wallet (measured real round-trip) protects the $40" />
         {tradeRows.length === 0 ? (
           <EmptyState
             title="No live trades yet"
@@ -126,7 +126,7 @@ export default function BscProof() {
                   <th className="px-4 py-3 font-medium">Asset</th>
                   <th className="px-4 py-3 font-medium">Family</th>
                   <th className="px-4 py-3 text-right font-medium">Size</th>
-                  <th className="px-4 py-3 text-right font-medium">Net edge</th>
+                  <th className="px-4 py-3 text-right font-medium">Move / scored / wallet</th>
                   <th className="px-4 py-3 font-medium">CMC tools</th>
                   <th className="px-4 py-3 font-medium">BSC tx</th>
                 </tr>
@@ -143,7 +143,14 @@ export default function BscProof() {
                       {usd((m.execution.requestedOrder as { amountInUsd?: number } | undefined)?.amountInUsd)}
                     </td>
                     <td className="tabular px-4 py-3 text-right text-ink-muted">
-                      {num(m.economics.expectedMoveBps)}/{m.economics.frictionBps.toFixed(0)} bps
+                      <span title="Expected move / scored friction (competition cost) / measured real round-trip (wallet)">
+                        {num(m.economics.expectedMoveBps)}
+                        {" / "}
+                        <span className="text-pos">{m.economics.scoredFrictionBps.toFixed(0)}</span>
+                        {" / "}
+                        <span className="text-ink-faint">{(m.economics.realRoundTripBps ?? m.economics.realFrictionBps).toFixed(0)}</span>
+                        {" bps"}
+                      </span>
                     </td>
                     <td className="px-4 py-3 text-xs text-ink-muted">{(m.perception.cmcToolsUsed ?? []).join(", ") || "—"}</td>
                     <td className="px-4 py-3 font-mono text-xs">

@@ -35,6 +35,7 @@ export interface RiskConfig {
   netEdgeMinBps: number;
   frictionBudgetBps: number;
   scoringSimCostBps: number; // per trade leg — conservative default until confirmed
+  walletFloorFraction: number; // expected move must exceed this × measured real round-trip
   maxSlippageBps: number;
   shadowFillToleranceBps: number;
   kellyFraction: number;
@@ -70,6 +71,7 @@ export const DEFAULT_RISK_CONFIG: RiskConfig = {
   netEdgeMinBps: 30,
   frictionBudgetBps: 120,
   scoringSimCostBps: 10,
+  walletFloorFraction: 0.75,
   maxSlippageBps: 50,
   shadowFillToleranceBps: 40,
   kellyFraction: 0.25,
@@ -136,6 +138,7 @@ export function loadRiskConfig(env: Record<string, string | undefined> = {}): Ri
     netEdgeMinBps: num("NET_EDGE_MIN_BPS", d.netEdgeMinBps),
     frictionBudgetBps: num("FRICTION_BUDGET_BPS", d.frictionBudgetBps),
     scoringSimCostBps: num("SCORING_SIM_COST_BPS", d.scoringSimCostBps),
+    walletFloorFraction: num("WALLET_FLOOR_FRACTION", d.walletFloorFraction),
     maxSlippageBps: num("MAX_SLIPPAGE_BPS", d.maxSlippageBps),
     shadowFillToleranceBps: num("SHADOW_FILL_TOLERANCE_BPS", d.shadowFillToleranceBps),
     kellyFraction: num("KELLY_FRACTION", d.kellyFraction),

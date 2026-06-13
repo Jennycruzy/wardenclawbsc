@@ -50,6 +50,23 @@ silently dropped.
 | 13 | Final quality bar | implemented (build-time); live execution pending real bindings | — |
 | 14 | Self-audit protocol | implemented | this document |
 
+## Win-First upgrade (workstreams)
+
+Surgical offense/precision patch added INSIDE every existing safety gate (spot-only,
+TWAK-only, eligible-contracts-only). Each row: file + passing test as evidence.
+
+| WS | Requirement | Status | Evidence |
+|---|---|---|---|
+| 1 | Two ledgers: Scored (sim cost → net-edge gate) vs Wallet (measured real round-trip → wallet floor); changing `SCORING_SIM_COST_BPS` alone retunes the gate; both on every mandate | implemented | `scoredCost.ts`, `ledgers.ts`, `netEdgeGate.ts` (scored gate + `REJECT_WALLET_FLOOR`), `riskConstitution.ts`, `pipeline.ts`/`mandate.ts`; tests: `economics.test.ts` (wallet-floor a/b), `ledgers.test.ts` (cost model c + rolling estimate), `riskGates.test.ts` (wallet floor), `pipeline.test.ts` (both ledgers on mandate d); `/bsc/proof` shows move/scored/wallet |
+| 2 | Trailing-stop ratchet | pending | — |
+| 3 | Fast position-watch loop | pending | — |
+| 4 | x402 through TWAK (custody) | pending | — |
+| 5 | Entry quality + rs_continuation | pending | — |
+| 6 | Week-schedule risk budget | pending | — |
+| 7 | Red-day regime analyst | pending | — |
+| 8 | Measure/surface TWAK fees | pending | — |
+| 9 | Operations + docs | pending | — |
+
 ## Honesty audit (full system)
 
 1. **Any fake data presented as real?** No. CMC and Bitget clients hit real APIs

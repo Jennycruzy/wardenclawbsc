@@ -128,6 +128,46 @@ describe("evaluateCandidate — approval", () => {
   });
 });
 
+describe("evaluateCandidate — two ledgers (WS1)", () => {
+  it("carries both the scored and wallet ledgers on the economics block and mandate", () => {
+    const r = evaluateCandidate(candidate(), ctx());
+    expect(r.economics.scoredFrictionBps).toBe(DEFAULT_RISK_CONFIG.scoringSimCostBps * 2);
+    expect(r.economics.realRoundTripBps).toBeGreaterThan(0);
+    expect(r.economics.walletFloorBps).toBeGreaterThan(0);
+    expect(r.economics.walletFloorPassed).toBe(true);
+
+    const m = buildBscMandate({
+      result: r,
+      mode: "rehearsal",
+      strategyId: "s",
+      naturalLanguageIntent: "n",
+      compiledStrategy: {},
+      assetContract: CAKE,
+      cmcToolsUsed: ["quotes"],
+      marketDataTimestamp: "2026-06-22T00:00:00Z",
+      calibrationVersion: calibration.version,
+      createdAt: "2026-06-22T00:00:00Z",
+      id: "bsc-ledgers",
+    });
+    expect(m.economics.scoredFrictionBps).toBe(r.economics.scoredFrictionBps);
+    expect(m.economics.realRoundTripBps).toBe(r.economics.realRoundTripBps);
+    expect(m.economics.walletFloorPassed).toBe(true);
+  });
+
+  it("rejects a scored-positive but wallet-ruinous trade via the wallet floor", () => {
+    // Scored cost is tiny (default 10/leg → 20bps), so a modest move clears the
+    // scored gate; but a measured real round-trip of 900bps puts the wallet floor
+    // at 675bps, which the calibrated move cannot clear.
+    const lowMove: CalibrationReport = {
+      ...calibration,
+      bands: [{ minScore: 80, realizedMoveBps: 120, hitRate: 0.9, realizedVsPredicted: 1 }],
+    };
+    const r = evaluateCandidate(candidate(), ctx({ calibration: lowMove, realRoundTripBps: 900 }));
+    expect(r.approved).toBe(false);
+    expect(r.rejectCode).toBe("REJECT_WALLET_FLOOR");
+  });
+});
+
 describe("evaluateCandidate — gate rejections", () => {
   it("rejects a low score (REJECT_LOW_SCORE)", () => {
     const weak = { ...strongInputs, momentum: 0.2, liquiditySafety: 0.2, relativeStrengthVsBnb: 0.2, sentiment: 0.2, volatilitySafety: 0.2, walletRiskState: 0.2 };
