@@ -27,7 +27,10 @@ export interface RiskGateCandidate {
   isNonSpot: boolean;
   notionalUsd: number;
   expectedMoveBps: number;
-  frictionBps: number; // round trip incl. simulated cost
+  /** Scored Ledger: round-trip simulated scoring cost (drives the net-edge gate). */
+  scoredFrictionBps: number;
+  /** Wallet Ledger: measured real round-trip cost (drives the wallet floor). Optional. */
+  realRoundTripBps?: number;
   /** Optional shadow-fill simulation result. */
   shadowFill?: { expectedOut: number; simulatedOut: number };
   /** Whether this is a forced safety exit (bypasses net-edge only). */
@@ -45,6 +48,8 @@ export interface RiskGateState {
   calibrationStale: boolean;
   marketDataStale: boolean;
   survivalMode: boolean;
+  /** WS7 committed market regime. RED blocks new directional entries. */
+  regime?: "GREEN" | "NEUTRAL" | "RED";
 }
 
 export interface RiskGateContext {
@@ -151,6 +156,12 @@ export function evaluateRiskGates(
     return reject(RejectCode.DRAWDOWN_BUDGET, "survival mode blocks new risky entries");
   }
 
+  // Red-day regime: block new directional entries (the stable↔stable scout and
+  // forced safety exits — the rotation to stables — are still allowed).
+  if (state.regime === "RED" && !candidate.forcedSafetyExit && !candidate.isMicroScout) {
+    return reject(RejectCode.REGIME_RED, "market regime is RED — new directional entries blocked");
+  }
+
   // Concurrency + daily trade caps (entries only).
   if (!candidate.forcedSafetyExit) {
     if (state.openPositions >= config.maxConcurrentPositions && !candidate.isMicroScout) {
@@ -162,18 +173,37 @@ export function evaluateRiskGates(
     passedGates.push("trade_limits");
   }
 
-  // Net-edge gate (directional trades only; scouts and safety exits exempt).
+  // Dust prevention (Wallet Ledger): a notional so small that the MEASURED real
+  // round-trip cost dominates is not worth entering — fixed gas swamps a tiny
+  // position. Scouts and forced safety exits are exempt (we must always be able to
+  // get out, and the stable scout is intentionally tiny).
+  if (
+    !candidate.isMicroScout &&
+    !candidate.forcedSafetyExit &&
+    candidate.realRoundTripBps !== undefined &&
+    candidate.realRoundTripBps > config.dustRoundTripCeilingBps
+  ) {
+    return reject(
+      RejectCode.DUST_TRADE,
+      `real round-trip ${candidate.realRoundTripBps.toFixed(0)}bps > dust ceiling ${config.dustRoundTripCeilingBps}bps — notional too small to overcome fixed cost`,
+    );
+  }
+
+  // Net-edge gate + wallet floor (directional trades only; scouts and safety exits exempt).
   if (!candidate.isMicroScout) {
     const netEdge = evaluateNetEdge({
       expectedMoveBps: candidate.expectedMoveBps,
-      frictionBps: candidate.frictionBps,
+      scoredFrictionBps: candidate.scoredFrictionBps,
       netEdgeMinBps: config.netEdgeMinBps,
+      realRoundTripBps: candidate.realRoundTripBps,
+      walletFloorFraction: config.walletFloorFraction,
       forcedSafetyExit: candidate.forcedSafetyExit,
     });
     if (!netEdge.passed) {
-      return reject(RejectCode.NET_EDGE, netEdge.reason);
+      return reject(netEdge.rejectCode ?? RejectCode.NET_EDGE, netEdge.reason);
     }
     passedGates.push("net_edge");
+    if (netEdge.walletFloorPassed !== undefined) passedGates.push("wallet_floor");
   } else {
     passedGates.push("micro_scout_exempt");
   }

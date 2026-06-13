@@ -88,8 +88,20 @@ describe("CliTwakExecutor (real subprocess against a stub binary)", () => {
     await expect(ex.resolveAgentWallet()).rejects.toThrow(/not installed|not on PATH/);
   });
 
-  it("x402 fails loud directing to the CMC x402 client", async () => {
+  it("pays a TWAK-native x402 request and returns a settlement receipt", async () => {
     const ex = new CliTwakExecutor({ tokens, bin: stubBin });
-    await expect(ex.payX402({ url: "u", maxAmount: "0.01", asset: "USDC" })).rejects.toThrow(/CmcX402Client/);
+    const r = await ex.payX402({ url: "https://api.example.com/data", maxAmount: "10000", asset: "USDC" });
+    // The stub returns hash 0xTXHASH → used as the settlement id; no fabrication.
+    expect(r.receipt).toBe("0xTXHASH");
+    expect(r.requestUrl).toBe("https://api.example.com/data");
+    expect(r.usedInDecision).toBe(true);
+  });
+
+  it("fails loud on an x402 error envelope (no fabricated receipt)", async () => {
+    const errBin = join(dir, "twak-x402-err.sh");
+    writeFileSync(errBin, `#!/bin/sh\necho '{"error":"server wants more","errorCode":"PAYMENT_AMOUNT_EXCEEDED"}'\n`, "utf8");
+    chmodSync(errBin, 0o755);
+    const ex = new CliTwakExecutor({ tokens, bin: errBin });
+    await expect(ex.payX402({ url: "https://api.example.com/data", maxAmount: "1", asset: "" })).rejects.toThrow(/PAYMENT_AMOUNT_EXCEEDED/);
   });
 });

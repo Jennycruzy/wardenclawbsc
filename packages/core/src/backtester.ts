@@ -7,6 +7,7 @@
  */
 
 import { computeFriction } from "./frictionModel.js";
+import { computeScoredFrictionBps } from "./scoredCost.js";
 import { evaluateNetEdge } from "./netEdgeGate.js";
 import { evaluateStopCoherence } from "./stopCoherence.js";
 
@@ -141,9 +142,13 @@ export function runBacktest(bars: Bar[], signalFn: SignalFn, config: BacktestCon
         bump(coherence.rejectCode ?? "REJECT_STOP_COHERENCE");
       } else {
         const frictionBps = frictionBpsAt(coherence.positionSizeUsd);
+        // Gate on the SCORED ledger (what the competition charges), matching live.
         const netEdge = evaluateNetEdge({
           expectedMoveBps: signal.expectedMoveBps,
-          frictionBps,
+          scoredFrictionBps: computeScoredFrictionBps({
+            notionalUsd: coherence.positionSizeUsd,
+            scoringSimCostBps: config.scoringSimCostBps,
+          }),
           netEdgeMinBps: config.netEdgeMinBps,
         });
         if (!netEdge.passed) {

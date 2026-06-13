@@ -1,12 +1,30 @@
 import { BscShell } from "@/components/bscShell";
 import { Card, SectionTitle, Badge, Dot, KeyValue } from "@/components/ui";
-import { readBscEnv } from "@/lib/data";
+import { readBscEnv, readWatchHeartbeat, readWeekBudget, readRegime, readWalletCost } from "@/lib/data";
 
 export const dynamic = "force-dynamic";
+
+const WEEK_STATE_TONE: Record<string, "pos" | "warn" | "accent"> = {
+  PRESS: "pos",
+  DEFEND: "warn",
+  HUNT: "accent",
+};
+
+const REGIME_TONE: Record<string, "pos" | "neutral" | "neg"> = {
+  GREEN: "pos",
+  NEUTRAL: "neutral",
+  RED: "neg",
+};
 
 /** Phone-first health view (§0.11). Reads live config + integration readiness. */
 export default function BscOps() {
   const env = readBscEnv();
+  const watch = readWatchHeartbeat();
+  const week = readWeekBudget();
+  const regime = readRegime();
+  const walletCost = readWalletCost();
+  const watchStaleMs = watch ? Date.now() - new Date(watch.lastBeatIso).getTime() : null;
+  const watchHealthy = watchStaleMs !== null && watchStaleMs < 120_000;
 
   const checks: Array<{ label: string; ok: boolean; detail: string }> = [
     { label: "Spot-only execution", ok: env.executionType === "spot_only", detail: env.executionType },
@@ -36,6 +54,114 @@ export default function BscOps() {
               </div>
             ))}
           </div>
+        </Card>
+
+        <Card>
+          <SectionTitle title="Fast position-watch loop" subtitle="Protection cadence — trails open positions and fires safety exits between decision cycles" />
+          {watch ? (
+            <div className="space-y-1">
+              <div className="flex items-center justify-between border-b border-line/50 py-2.5">
+                <div className="flex items-center gap-2.5">
+                  <Dot tone={watchHealthy ? "pos" : "warn"} />
+                  <span className="text-sm">Heartbeat</span>
+                </div>
+                <span className="text-xs text-ink-muted">
+                  {watchHealthy ? "live" : "stale"} · {watchStaleMs !== null ? `${Math.round(watchStaleMs / 1000)}s ago` : "—"}
+                </span>
+              </div>
+              <KeyValue k="Watching" v={watch.watching ? `${watch.openPositions} open position(s)` : "idle (flat)"} />
+              {watch.lastError ? <KeyValue k="Last error" v={watch.lastError} /> : null}
+            </div>
+          ) : (
+            <p className="py-3 text-xs text-ink-faint">
+              No watch heartbeat yet. The loop runs only while the worker is up; it watches open positions every{" "}
+              <code className="font-mono">POSITION_WATCH_INTERVAL_SECONDS</code> and never opens trades or calls the LLM.
+            </p>
+          )}
+        </Card>
+
+        <Card>
+          <SectionTitle title="Red-day regime" subtitle="GREEN / NEUTRAL / RED with hysteresis — RED blocks new entries and rotates open risk to stables" />
+          {regime ? (
+            <div className="space-y-1">
+              <div className="flex items-center justify-between border-b border-line/50 py-2.5">
+                <div className="flex items-center gap-2.5">
+                  <Dot tone={REGIME_TONE[regime.regime] ?? "neutral"} />
+                  <span className="text-sm">Committed regime</span>
+                </div>
+                <Badge tone={REGIME_TONE[regime.regime] ?? "neutral"}>
+                  {regime.regime}
+                  {regime.blocksEntries ? " · entries blocked" : ""}
+                </Badge>
+              </div>
+              <KeyValue k="Raw read" v={`${regime.rawRegime} (score ${regime.score >= 0 ? "+" : ""}${regime.score})`} />
+              <KeyValue k="Benchmark 24h" v={`${regime.benchmarkChange24hPct >= 0 ? "+" : ""}${regime.benchmarkChange24hPct.toFixed(1)}%`} />
+              <KeyValue k="Fear & Greed" v={`${regime.fearGreed}`} />
+              <KeyValue k="Breadth up" v={`${Math.round(regime.breadthUpFraction * 100)}% of majors`} />
+              <p className="pt-2 text-xs text-ink-faint">{regime.reason}</p>
+            </div>
+          ) : (
+            <p className="py-3 text-xs text-ink-faint">
+              No regime snapshot yet. The worker votes benchmark 24h change, Fear &amp; Greed, and majors breadth each
+              cycle; a switch needs <code className="font-mono">REGIME_HYSTERESIS_CHECKS</code> consecutive confirming reads.
+            </p>
+          )}
+        </Card>
+
+        <Card>
+          <SectionTitle title="Week-schedule risk budget" subtitle="HUNT / PRESS / DEFEND — sizes risk across the competition week, not just per trade" />
+          {week ? (
+            <div className="space-y-1">
+              <div className="flex items-center justify-between border-b border-line/50 py-2.5">
+                <div className="flex items-center gap-2.5">
+                  <Dot tone={WEEK_STATE_TONE[week.riskState] ?? "neutral"} />
+                  <span className="text-sm">State</span>
+                </div>
+                <Badge tone={WEEK_STATE_TONE[week.riskState] ?? "neutral"}>
+                  {week.riskState} · size ×{week.sizeMultiplier}
+                </Badge>
+              </div>
+              <KeyValue k="Week return" v={`${week.weekReturnPct >= 0 ? "+" : ""}${week.weekReturnPct.toFixed(1)}%`} />
+              <KeyValue k="Week elapsed" v={`${week.weekElapsedPct.toFixed(0)}%`} />
+              <KeyValue
+                k="Legs"
+                v={`${week.legsUsed} used · ${week.legsRemaining} left${week.legsScarce ? " (scarce)" : ""}`}
+              />
+              <p className="pt-2 text-xs text-ink-faint">{week.reason}</p>
+            </div>
+          ) : (
+            <p className="py-3 text-xs text-ink-faint">
+              No week-budget snapshot yet. The worker writes it each decision cycle; the size multiplier is bounded by{" "}
+              <code className="font-mono">MAX_POSITION_PCT</code> and the volatility stop, so PRESS never breaches the caps.
+            </p>
+          )}
+        </Card>
+
+        <Card>
+          <SectionTitle title="Measured TWAK round-trip cost" subtitle="The real $40 cost — measured from fills, never hardcoded — driving the wallet floor and dust gate" />
+          {walletCost ? (
+            <div className="space-y-1">
+              <div className="flex items-center justify-between border-b border-line/50 py-2.5">
+                <div className="flex items-center gap-2.5">
+                  <Dot tone={walletCost.measured ? "pos" : "neutral"} />
+                  <span className="text-sm">Real round-trip</span>
+                </div>
+                <Badge tone={walletCost.measured ? "pos" : "neutral"}>
+                  {walletCost.rollingBps.toFixed(0)} bps · {walletCost.measured ? `${walletCost.sampleCount} fill(s)` : "bootstrap"}
+                </Badge>
+              </div>
+              <KeyValue k="Wallet floor" v={`${walletCost.walletFloorBps.toFixed(0)} bps (move must clear)`} />
+              <KeyValue k="Dust ceiling" v={`${walletCost.dustCeilingBps} bps`} />
+              {!walletCost.measured ? (
+                <KeyValue k="Modeled bootstrap" v={`${walletCost.bootstrapBps.toFixed(0)} bps until first real fill`} />
+              ) : null}
+            </div>
+          ) : (
+            <p className="py-3 text-xs text-ink-faint">
+              No cost snapshot yet. The worker measures each completed round-trip (entry notional vs actual exit
+              proceeds, isolated from the price move) and rolls it into the wallet floor and dust gate.
+            </p>
+          )}
         </Card>
 
         <Card>

@@ -8,6 +8,7 @@ import {
   computeBscProof,
   loadHourlySnapshots,
   readBscEnv,
+  readWalletCost,
 } from "@/lib/data";
 import { DEFAULT_RISK_CONFIG } from "@wardenclaw/core";
 import { totalReturnPct, maxDrawdownPct, type HourlySnapshot } from "@wardenclaw/core";
@@ -28,6 +29,7 @@ export default function BscProof() {
   const liveValue = snaps.length ? snaps[snaps.length - 1]!.valueUsd : null;
   const tradeRows = mandates.filter((m) => m.risk.approved);
   const weeklyTrades = tradeRows.length;
+  const walletCost = readWalletCost();
 
   return (
     <BscShell
@@ -110,7 +112,15 @@ export default function BscProof() {
       </div>
 
       <div className="mt-3">
-        <SectionTitle title="Trade ledger" subtitle="Every approved mandate with its CMC trigger and proof anchors" />
+        <SectionTitle title="Trade ledger" subtitle="Two ledgers per trade — scored (competition simulated cost) drives the gate; wallet (measured real round-trip) protects the $40" />
+        {walletCost ? (
+          <div className="mb-3 flex flex-wrap items-center gap-2 text-xs text-ink-muted">
+            <Badge tone={walletCost.measured ? "pos" : "neutral"}>
+              Real round-trip {walletCost.rollingBps.toFixed(0)} bps · {walletCost.measured ? `${walletCost.sampleCount} measured fill(s)` : "modeled bootstrap"}
+            </Badge>
+            <span>Wallet floor {walletCost.walletFloorBps.toFixed(0)} bps · dust ceiling {walletCost.dustCeilingBps} bps</span>
+          </div>
+        ) : null}
         {tradeRows.length === 0 ? (
           <EmptyState
             title="No live trades yet"
@@ -126,7 +136,7 @@ export default function BscProof() {
                   <th className="px-4 py-3 font-medium">Asset</th>
                   <th className="px-4 py-3 font-medium">Family</th>
                   <th className="px-4 py-3 text-right font-medium">Size</th>
-                  <th className="px-4 py-3 text-right font-medium">Net edge</th>
+                  <th className="px-4 py-3 text-right font-medium">Move / scored / wallet</th>
                   <th className="px-4 py-3 font-medium">CMC tools</th>
                   <th className="px-4 py-3 font-medium">BSC tx</th>
                 </tr>
@@ -143,7 +153,14 @@ export default function BscProof() {
                       {usd((m.execution.requestedOrder as { amountInUsd?: number } | undefined)?.amountInUsd)}
                     </td>
                     <td className="tabular px-4 py-3 text-right text-ink-muted">
-                      {num(m.economics.expectedMoveBps)}/{m.economics.frictionBps.toFixed(0)} bps
+                      <span title="Expected move / scored friction (competition cost) / measured real round-trip (wallet)">
+                        {num(m.economics.expectedMoveBps)}
+                        {" / "}
+                        <span className="text-pos">{m.economics.scoredFrictionBps.toFixed(0)}</span>
+                        {" / "}
+                        <span className="text-ink-faint">{(m.economics.realRoundTripBps ?? m.economics.realFrictionBps).toFixed(0)}</span>
+                        {" bps"}
+                      </span>
                     </td>
                     <td className="px-4 py-3 text-xs text-ink-muted">{(m.perception.cmcToolsUsed ?? []).join(", ") || "—"}</td>
                     <td className="px-4 py-3 font-mono text-xs">

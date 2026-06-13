@@ -43,7 +43,7 @@ const baseCandidate: RiskGateCandidate = {
   isNonSpot: false,
   notionalUsd: 20,
   expectedMoveBps: 300,
-  frictionBps: 120,
+  scoredFrictionBps: 120,
 };
 
 describe("risk constitution gate chain", () => {
@@ -90,6 +90,26 @@ describe("risk constitution gate chain", () => {
   it("blocks a directional trade with insufficient net edge", () => {
     const r = evaluateRiskGates({ ...baseCandidate, expectedMoveBps: 100 }, baseState, ctx);
     expect(r.rejectCode).toBe("REJECT_NET_EDGE");
+  });
+
+  it("rejects a scored-positive trade that fails the wallet floor", () => {
+    // scored required = 20 + 30 = 50 (cleared by 60); wallet floor = 0.75 × 200 = 150 (failed).
+    const r = evaluateRiskGates(
+      { ...baseCandidate, expectedMoveBps: 60, scoredFrictionBps: 20, realRoundTripBps: 200 },
+      baseState,
+      ctx,
+    );
+    expect(r.rejectCode).toBe("REJECT_WALLET_FLOOR");
+  });
+
+  it("clears both gates and records the wallet_floor gate", () => {
+    const r = evaluateRiskGates(
+      { ...baseCandidate, expectedMoveBps: 300, scoredFrictionBps: 20, realRoundTripBps: 200 },
+      baseState,
+      ctx,
+    );
+    expect(r.approved).toBe(true);
+    expect(r.passedGates).toContain("wallet_floor");
   });
 
   it("allows the stable↔stable micro-scout despite weak edge", () => {
@@ -147,5 +167,69 @@ describe("risk constitution gate chain", () => {
       ctx,
     );
     expect(r.rejectCode).toBe("REJECT_SHADOW_FILL");
+  });
+
+  it("blocks new directional entries in a RED regime (REJECT_REGIME_RED)", () => {
+    const r = evaluateRiskGates(baseCandidate, { ...baseState, regime: "RED" }, ctx);
+    expect(r.approved).toBe(false);
+    expect(r.rejectCode).toBe("REJECT_REGIME_RED");
+  });
+
+  it("still allows the stable scout and the rotation-to-stables exit in a RED regime", () => {
+    const scout = evaluateRiskGates(
+      { ...baseCandidate, tokenOutAddress: USDC, isMicroScout: true },
+      { ...baseState, regime: "RED" },
+      ctx,
+    );
+    expect(scout.approved).toBe(true);
+
+    const exit = evaluateRiskGates(
+      { ...baseCandidate, forcedSafetyExit: true, expectedMoveBps: 0 },
+      { ...baseState, regime: "RED" },
+      ctx,
+    );
+    expect(exit.approved).toBe(true);
+  });
+
+  it("does not block entries when the regime is GREEN or NEUTRAL", () => {
+    expect(evaluateRiskGates(baseCandidate, { ...baseState, regime: "GREEN" }, ctx).approved).toBe(true);
+    expect(evaluateRiskGates(baseCandidate, { ...baseState, regime: "NEUTRAL" }, ctx).approved).toBe(true);
+  });
+
+  it("rejects a dust trade when the measured real round-trip exceeds the ceiling", () => {
+    // 400bps > the 350bps default ceiling — fixed cost dominates a too-small notional.
+    const r = evaluateRiskGates(
+      { ...baseCandidate, expectedMoveBps: 1000, realRoundTripBps: 400 },
+      baseState,
+      ctx,
+    );
+    expect(r.approved).toBe(false);
+    expect(r.rejectCode).toBe("REJECT_DUST_TRADE");
+  });
+
+  it("exempts the stable scout and forced safety exits from the dust gate", () => {
+    const scout = evaluateRiskGates(
+      { ...baseCandidate, tokenOutAddress: USDC, isMicroScout: true, realRoundTripBps: 400 },
+      baseState,
+      ctx,
+    );
+    expect(scout.approved).toBe(true);
+
+    const exit = evaluateRiskGates(
+      { ...baseCandidate, forcedSafetyExit: true, expectedMoveBps: 0, realRoundTripBps: 400 },
+      baseState,
+      ctx,
+    );
+    expect(exit.approved).toBe(true);
+  });
+
+  it("allows a healthy-cost trade below the dust ceiling", () => {
+    const r = evaluateRiskGates(
+      { ...baseCandidate, expectedMoveBps: 300, realRoundTripBps: 120 },
+      baseState,
+      ctx,
+    );
+    expect(r.approved).toBe(true);
+    expect(r.passedGates).toContain("net_edge");
   });
 });

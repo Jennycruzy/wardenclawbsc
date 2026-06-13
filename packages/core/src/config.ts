@@ -14,14 +14,50 @@ export interface RiskConfig {
   maxConcurrentPositions: number;
   perTradeRiskPct: number; // volatility-stop-derived sizing
   stopAtrMultiple: number;
+  breakevenTriggerAtr: number; // gain (in ATR) that arms the breakeven+fees ratchet
+  trailAtrMultiple: number; // normal trail distance below HWM (in ATR)
+  trailTightAtrMultiple: number; // tight (defend/red) trail distance below HWM (in ATR)
   maxPositionPct: number;
   attackNotionalMinUsd: number;
   microScoutUsd: number; // stable↔stable compliance trade
+
+  // Fast position-watch loop (protection cadence, only while a position is open)
+  positionWatchIntervalSeconds: number;
+  watchStalenessLimitSeconds: number;
+  watchStalenessAction: "alert_only" | "reduce";
+
+  // Entry quality — catalyst uncrowding + RS continuation
+  trendingDeltaMin: number;
+  trendingTopN: number;
+  volumeExpansionMin: number;
+  spikeCooldownChecks: number;
+  maxRetracePct: number;
+  spikeMinPct: number;
+  rsOutperformMinBps: number;
 
   // Trade frequency (verified minimum: 1/day, 7/week)
   minTradesPerDay: number;
   targetTradesPerDay: number;
   maxTradesPerDay: number;
+
+  // Week-schedule risk budget (HUNT/PRESS/DEFEND, leg-counting, win-first sizing)
+  weeklyLegBudget: number;
+  pressThresholdPct: number;
+  defendThresholdPct: number;
+  lockInReturnPct: number;
+  maxGiveBackPct: number;
+  pressSizeMultiplier: number;
+  defendSizeMultiplier: number;
+  lateWeekFraction: number;
+
+  // Red-day regime analyst (GREEN/NEUTRAL/RED with hysteresis)
+  redBenchmarkPct: number;
+  greenBenchmarkPct: number;
+  redFearGreed: number;
+  greenFearGreed: number;
+  redBreadth: number;
+  greenBreadth: number;
+  regimeHysteresisChecks: number;
 
   // Drawdown / survival — three layers
   competitionDqDrawdownPct: number; // disqualifier; 30% indicative, confirm with organizer
@@ -35,6 +71,8 @@ export interface RiskConfig {
   netEdgeMinBps: number;
   frictionBudgetBps: number;
   scoringSimCostBps: number; // per trade leg — conservative default until confirmed
+  walletFloorFraction: number; // expected move must exceed this × measured real round-trip
+  dustRoundTripCeilingBps: number; // measured real round-trip above this = dust (notional too small vs fixed cost)
   maxSlippageBps: number;
   shadowFillToleranceBps: number;
   kellyFraction: number;
@@ -52,13 +90,45 @@ export const DEFAULT_RISK_CONFIG: RiskConfig = {
   maxConcurrentPositions: 1,
   perTradeRiskPct: 3,
   stopAtrMultiple: 1.5,
+  breakevenTriggerAtr: 1.0,
+  trailAtrMultiple: 1.5,
+  trailTightAtrMultiple: 1.0,
   maxPositionPct: 70,
   attackNotionalMinUsd: 15,
   microScoutUsd: 5,
 
+  positionWatchIntervalSeconds: 45,
+  watchStalenessLimitSeconds: 180,
+  watchStalenessAction: "alert_only",
+
+  trendingDeltaMin: 5,
+  trendingTopN: 30,
+  volumeExpansionMin: 1.5,
+  spikeCooldownChecks: 2,
+  maxRetracePct: 0.5,
+  spikeMinPct: 0.08,
+  rsOutperformMinBps: 200,
+
   minTradesPerDay: 1,
   targetTradesPerDay: 2,
   maxTradesPerDay: 3,
+
+  weeklyLegBudget: 14,
+  pressThresholdPct: 8,
+  defendThresholdPct: -3,
+  lockInReturnPct: 25,
+  maxGiveBackPct: 5,
+  pressSizeMultiplier: 1.3,
+  defendSizeMultiplier: 0.5,
+  lateWeekFraction: 0.7,
+
+  redBenchmarkPct: -4,
+  greenBenchmarkPct: 2,
+  redFearGreed: 25,
+  greenFearGreed: 60,
+  redBreadth: 0.3,
+  greenBreadth: 0.6,
+  regimeHysteresisChecks: 2,
 
   competitionDqDrawdownPct: 30,
   internalWindowDrawdownPct: 15,
@@ -70,6 +140,8 @@ export const DEFAULT_RISK_CONFIG: RiskConfig = {
   netEdgeMinBps: 30,
   frictionBudgetBps: 120,
   scoringSimCostBps: 10,
+  walletFloorFraction: 0.75,
+  dustRoundTripCeilingBps: 350,
   maxSlippageBps: 50,
   shadowFillToleranceBps: 40,
   kellyFraction: 0.25,
@@ -110,6 +182,14 @@ export function loadRiskConfig(env: Record<string, string | undefined> = {}): Ri
     if (raw === undefined || raw === "") return fallback;
     return raw === "true" || raw === "1";
   };
+  const oneOf = <T extends string>(key: string, allowed: readonly T[], fallback: T): T => {
+    const raw = env[key];
+    if (raw === undefined || raw === "") return fallback;
+    if (!allowed.includes(raw as T)) {
+      throw new Error(`Invalid env ${key}=${raw} (expected one of ${allowed.join(", ")})`);
+    }
+    return raw as T;
+  };
 
   const d = DEFAULT_RISK_CONFIG;
   return {
@@ -118,13 +198,45 @@ export function loadRiskConfig(env: Record<string, string | undefined> = {}): Ri
     maxConcurrentPositions: num("MAX_CONCURRENT_POSITIONS", d.maxConcurrentPositions),
     perTradeRiskPct: num("PER_TRADE_RISK_PCT", d.perTradeRiskPct),
     stopAtrMultiple: num("STOP_ATR_MULTIPLE", d.stopAtrMultiple),
+    breakevenTriggerAtr: num("BREAKEVEN_TRIGGER_ATR", d.breakevenTriggerAtr),
+    trailAtrMultiple: num("TRAIL_ATR_MULTIPLE", d.trailAtrMultiple),
+    trailTightAtrMultiple: num("TRAIL_TIGHT_ATR_MULTIPLE", d.trailTightAtrMultiple),
     maxPositionPct: num("MAX_POSITION_PCT", d.maxPositionPct),
     attackNotionalMinUsd: num("ATTACK_NOTIONAL_MIN_USD", d.attackNotionalMinUsd),
     microScoutUsd: num("MICRO_SCOUT_USD", d.microScoutUsd),
 
+    positionWatchIntervalSeconds: num("POSITION_WATCH_INTERVAL_SECONDS", d.positionWatchIntervalSeconds),
+    watchStalenessLimitSeconds: num("WATCH_STALENESS_LIMIT_SECONDS", d.watchStalenessLimitSeconds),
+    watchStalenessAction: oneOf("WATCH_STALENESS_ACTION", ["alert_only", "reduce"] as const, d.watchStalenessAction),
+
+    trendingDeltaMin: num("TRENDING_DELTA_MIN", d.trendingDeltaMin),
+    trendingTopN: num("TRENDING_TOP_N", d.trendingTopN),
+    volumeExpansionMin: num("VOLUME_EXPANSION_MIN", d.volumeExpansionMin),
+    spikeCooldownChecks: num("SPIKE_COOLDOWN_CHECKS", d.spikeCooldownChecks),
+    maxRetracePct: num("MAX_RETRACE_PCT", d.maxRetracePct),
+    spikeMinPct: num("SPIKE_MIN_PCT", d.spikeMinPct),
+    rsOutperformMinBps: num("RS_OUTPERFORM_MIN_BPS", d.rsOutperformMinBps),
+
     minTradesPerDay: num("MIN_TRADES_PER_DAY", d.minTradesPerDay),
     targetTradesPerDay: num("TARGET_TRADES_PER_DAY", d.targetTradesPerDay),
     maxTradesPerDay: num("MAX_TRADES_PER_DAY", d.maxTradesPerDay),
+
+    weeklyLegBudget: num("WEEKLY_LEG_BUDGET", d.weeklyLegBudget),
+    pressThresholdPct: num("PRESS_THRESHOLD_PCT", d.pressThresholdPct),
+    defendThresholdPct: num("DEFEND_THRESHOLD_PCT", d.defendThresholdPct),
+    lockInReturnPct: num("LOCK_IN_RETURN_PCT", d.lockInReturnPct),
+    maxGiveBackPct: num("MAX_GIVE_BACK_PCT", d.maxGiveBackPct),
+    pressSizeMultiplier: num("PRESS_SIZE_MULTIPLIER", d.pressSizeMultiplier),
+    defendSizeMultiplier: num("DEFEND_SIZE_MULTIPLIER", d.defendSizeMultiplier),
+    lateWeekFraction: num("LATE_WEEK_FRACTION", d.lateWeekFraction),
+
+    redBenchmarkPct: num("RED_BENCHMARK_PCT", d.redBenchmarkPct),
+    greenBenchmarkPct: num("GREEN_BENCHMARK_PCT", d.greenBenchmarkPct),
+    redFearGreed: num("RED_FEAR_GREED", d.redFearGreed),
+    greenFearGreed: num("GREEN_FEAR_GREED", d.greenFearGreed),
+    redBreadth: num("RED_BREADTH", d.redBreadth),
+    greenBreadth: num("GREEN_BREADTH", d.greenBreadth),
+    regimeHysteresisChecks: num("REGIME_HYSTERESIS_CHECKS", d.regimeHysteresisChecks),
 
     competitionDqDrawdownPct: num("COMPETITION_DQ_DRAWDOWN_PCT", d.competitionDqDrawdownPct),
     internalWindowDrawdownPct: num("INTERNAL_WINDOW_DRAWDOWN_PCT", d.internalWindowDrawdownPct),
@@ -136,6 +248,8 @@ export function loadRiskConfig(env: Record<string, string | undefined> = {}): Ri
     netEdgeMinBps: num("NET_EDGE_MIN_BPS", d.netEdgeMinBps),
     frictionBudgetBps: num("FRICTION_BUDGET_BPS", d.frictionBudgetBps),
     scoringSimCostBps: num("SCORING_SIM_COST_BPS", d.scoringSimCostBps),
+    walletFloorFraction: num("WALLET_FLOOR_FRACTION", d.walletFloorFraction),
+    dustRoundTripCeilingBps: num("DUST_ROUND_TRIP_CEILING_BPS", d.dustRoundTripCeilingBps),
     maxSlippageBps: num("MAX_SLIPPAGE_BPS", d.maxSlippageBps),
     shadowFillToleranceBps: num("SHADOW_FILL_TOLERANCE_BPS", d.shadowFillToleranceBps),
     kellyFraction: num("KELLY_FRACTION", d.kellyFraction),

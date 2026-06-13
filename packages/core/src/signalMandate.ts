@@ -21,7 +21,7 @@ const perception = z.object({
 });
 
 const decision = z.object({
-  signalFamily: z.enum(["momentum", "catalyst", "scout", "safety"]),
+  signalFamily: z.enum(["momentum", "catalyst", "rs_continuation", "scout", "safety"]),
   tradeScore: z.number(),
   regime: z.string(),
   reason: z.array(z.string()),
@@ -32,6 +32,10 @@ const economics = z.object({
   frictionBps: z.number(),
   realFrictionBps: z.number(),
   simulatedCostBps: z.number(),
+  scoredFrictionBps: z.number(),
+  realRoundTripBps: z.number().optional(),
+  walletFloorBps: z.number().optional(),
+  walletFloorPassed: z.boolean().optional(),
   expectedMoveBps: z.number(),
   netEdgePassed: z.boolean(),
   stopDistancePct: z.number().optional(),
@@ -85,6 +89,7 @@ const proofAnchors = z.object({
   bscTxHash: z.string().optional(),
   twakReceipt: z.string().optional(),
   x402Receipt: z.string().optional(),
+  x402Path: z.enum(["twak", "viem_fallback"]).optional(),
   cmcRequestId: z.string().optional(),
   bitgetRequestId: z.string().optional(),
   paperFillSource: z.string().optional(),

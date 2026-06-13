@@ -39,15 +39,15 @@ describe("friction model", () => {
   });
 });
 
-describe("net-edge gate", () => {
-  it("blocks a trade where expected move < friction + margin", () => {
-    const r = evaluateNetEdge({ expectedMoveBps: 100, frictionBps: 90, netEdgeMinBps: 30 });
+describe("net-edge gate (scored ledger)", () => {
+  it("blocks a trade where expected move < scored friction + margin", () => {
+    const r = evaluateNetEdge({ expectedMoveBps: 100, scoredFrictionBps: 90, netEdgeMinBps: 30 });
     expect(r.passed).toBe(false);
     expect(r.rejectCode).toBe("REJECT_NET_EDGE");
   });
 
   it("passes a clearly profitable setup", () => {
-    const r = evaluateNetEdge({ expectedMoveBps: 200, frictionBps: 90, netEdgeMinBps: 30 });
+    const r = evaluateNetEdge({ expectedMoveBps: 200, scoredFrictionBps: 90, netEdgeMinBps: 30 });
     expect(r.passed).toBe(true);
     expect(r.marginBps).toBe(80);
   });
@@ -55,11 +55,52 @@ describe("net-edge gate", () => {
   it("bypasses for a forced safety exit", () => {
     const r = evaluateNetEdge({
       expectedMoveBps: 0,
-      frictionBps: 500,
+      scoredFrictionBps: 500,
       netEdgeMinBps: 30,
+      realRoundTripBps: 1000,
       forcedSafetyExit: true,
     });
     expect(r.passed).toBe(true);
+  });
+
+  // WS1 acceptance (b): wallet-fine but scored-negative → rejected by net-edge.
+  it("rejects scored-negative even when the wallet floor is fine", () => {
+    const r = evaluateNetEdge({
+      expectedMoveBps: 100,
+      scoredFrictionBps: 120, // high simulated cost → scored required = 150
+      netEdgeMinBps: 30,
+      realRoundTripBps: 80, // wallet floor = 60, which 100 clears
+      walletFloorFraction: 0.75,
+    });
+    expect(r.passed).toBe(false);
+    expect(r.rejectCode).toBe("REJECT_NET_EDGE");
+    expect(r.walletFloorPassed).toBe(true);
+  });
+
+  // WS1 acceptance (a): scored-positive but wallet-ruinous → rejected by wallet floor.
+  it("rejects a scored-positive trade that fails the wallet floor", () => {
+    const r = evaluateNetEdge({
+      expectedMoveBps: 60,
+      scoredFrictionBps: 20, // scored required = 50, which 60 clears
+      netEdgeMinBps: 30,
+      realRoundTripBps: 140, // wallet floor = 105, which 60 fails
+      walletFloorFraction: 0.75,
+    });
+    expect(r.passed).toBe(false);
+    expect(r.rejectCode).toBe("REJECT_WALLET_FLOOR");
+    expect(r.walletFloorBps).toBeCloseTo(105, 5);
+  });
+
+  it("passes when both the scored gate and the wallet floor clear", () => {
+    const r = evaluateNetEdge({
+      expectedMoveBps: 200,
+      scoredFrictionBps: 20,
+      netEdgeMinBps: 30,
+      realRoundTripBps: 140,
+      walletFloorFraction: 0.75,
+    });
+    expect(r.passed).toBe(true);
+    expect(r.walletFloorPassed).toBe(true);
   });
 });
 

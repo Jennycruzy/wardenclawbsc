@@ -12,6 +12,9 @@
 import {
   bscScoreMode,
   computeFriction,
+  computeScoredFrictionBps,
+  evaluateCatalystEntry,
+  evaluateRsContinuation,
   evaluateGovernor,
   evaluateNetEdge,
   evaluateRiskGates,
@@ -23,8 +26,11 @@ import {
   type BscScoreInputs,
   type CalibrationReport,
   type EligibleAllowlist,
+  type Regime,
   type RiskConfig,
+  type RiskState,
   type SignalFamily,
+  type SignalObservation,
 } from "@wardenclaw/core";
 import { expectedSlippageBps } from "@wardenclaw/bsc-adapter";
 import { evaluateTwakPolicy, type TwakIntent, type TwakPolicyConfig } from "@wardenclaw/twak-adapter";
@@ -58,6 +64,12 @@ export interface CandidateInput {
   isNonSpot?: boolean;
   /** Whether this candidate is the stable↔stable Micro-Scout. */
   isMicroScout?: boolean;
+  /**
+   * Recent per-token history (chronological). When present, catalyst candidates
+   * must clear the uncrowding checks (trending delta, volume expansion, no first
+   * spike) and rs_continuation must clear two-consecutive outperformance.
+   */
+  entryObservations?: SignalObservation[];
 }
 
 export interface PipelineContext {
@@ -74,6 +86,18 @@ export interface PipelineContext {
   survivalMode: boolean;
   marketDataStale: boolean;
   calibrationStale: boolean;
+  /** Measured real round-trip cost (Wallet Ledger). Falls back to the modeled
+   *  real friction at size when undefined (e.g. before the first real fill). */
+  realRoundTripBps?: number;
+  /** WS6 week-schedule risk budget: multiplier on the governor's allowed size
+   *  (PRESS >1, DEFEND <1, HUNT 1). Bounded downstream by maxPositionPct and the
+   *  volatility-stop size, so it can never breach the hard caps. Defaults to 1. */
+  sizeMultiplier?: number;
+  /** The risk state that produced `sizeMultiplier` (for the audit trail). */
+  riskState?: RiskState;
+  /** WS7 committed market regime. RED blocks new directional entries (scouts and
+   *  safety exits excepted). Defaults to undefined (no regime gate). */
+  marketRegime?: Regime;
 }
 
 export interface PipelineResult {
@@ -89,6 +113,10 @@ export interface PipelineResult {
     frictionBps: number;
     realFrictionBps: number;
     simulatedCostBps: number;
+    scoredFrictionBps: number;
+    realRoundTripBps?: number;
+    walletFloorBps?: number;
+    walletFloorPassed?: boolean;
     netEdgePassed: boolean;
     stopDistancePct?: number;
     stopCoherencePassed?: boolean;
@@ -96,6 +124,9 @@ export interface PipelineResult {
     positionSizeUsd: number;
   };
   governor: { sizeFraction: number; bindingLayer: string; remainingBudgetPct: number };
+  /** WS6 week-schedule risk state and the size multiplier it imposed. */
+  riskState?: RiskState;
+  sizeMultiplier?: number;
   intent?: TwakIntent;
 }
 
@@ -109,6 +140,7 @@ export function evaluateCandidate(input: CandidateInput, ctx: PipelineContext): 
     frictionBps: 0,
     realFrictionBps: 0,
     simulatedCostBps: 0,
+    scoredFrictionBps: 0,
     netEdgePassed: false,
     positionSizeUsd: 0,
   };
@@ -128,6 +160,54 @@ export function evaluateCandidate(input: CandidateInput, ctx: PipelineContext): 
     };
   }
 
+  // Family entry-quality gates (deterministic; the LLM touches none of this).
+  // Catalyst must be uncrowded (rising rank + fresh volume + post-spike continuation);
+  // rs_continuation must show two consecutive outperformance checks with rising volume.
+  if (!input.isMicroScout && input.entryObservations) {
+    if (input.signalFamily === "catalyst") {
+      const cat = evaluateCatalystEntry(input.entryObservations, {
+        trendingDeltaMin: ctx.config.trendingDeltaMin,
+        trendingTopN: ctx.config.trendingTopN,
+        volumeExpansionMin: ctx.config.volumeExpansionMin,
+        spikeCooldownChecks: ctx.config.spikeCooldownChecks,
+        maxRetracePct: ctx.config.maxRetracePct,
+        spikeMinPct: ctx.config.spikeMinPct,
+      });
+      if (!cat.pass) {
+        return {
+          symbol: input.symbol,
+          signalFamily: input.signalFamily,
+          score,
+          mode,
+          approved: false,
+          rejectCode: cat.rejectCode,
+          reasons: cat.reasons,
+          economics: baseEconomics,
+          governor: { sizeFraction: 0, bindingLayer: "n/a", remainingBudgetPct: 0 },
+        };
+      }
+      reasons.push(`catalyst entry: ${cat.reasons.join("; ")}`);
+    } else if (input.signalFamily === "rs_continuation") {
+      const rs = evaluateRsContinuation(input.entryObservations, {
+        rsOutperformMinBps: ctx.config.rsOutperformMinBps,
+      });
+      if (!rs.pass) {
+        return {
+          symbol: input.symbol,
+          signalFamily: input.signalFamily,
+          score,
+          mode,
+          approved: false,
+          rejectCode: rs.rejectCode,
+          reasons: rs.reasons,
+          economics: baseEconomics,
+          governor: { sizeFraction: 0, bindingLayer: "n/a", remainingBudgetPct: 0 },
+        };
+      }
+      reasons.push(`rs continuation: ${rs.reasons.join("; ")}`);
+    }
+  }
+
   // Calibrated expected move + governor edge estimate.
   const expectedMoveBps = input.isMicroScout
     ? 0
@@ -143,7 +223,13 @@ export function evaluateCandidate(input: CandidateInput, ctx: PipelineContext): 
     edgeEstimate: edge,
     maxPositionFraction: ctx.config.maxPositionPct / 100,
   });
-  const governorCapUsd = governor.sizeFraction * ctx.deployableUsd;
+  // WS6 week budget scales the governor's allowed size (PRESS up / DEFEND down);
+  // maxPositionPct and the volatility-stop size still bind downstream.
+  const sizeMultiplier = ctx.sizeMultiplier ?? 1;
+  const governorCapUsd = governor.sizeFraction * ctx.deployableUsd * sizeMultiplier;
+  if (!input.isMicroScout && ctx.riskState && sizeMultiplier !== 1) {
+    reasons.push(`week budget ${ctx.riskState}: size ×${sizeMultiplier}`);
+  }
 
   // Friction-at-notional model from real reserves + gas + simulated scoring cost.
   const estimateFrictionBps = (notionalUsd: number): number => {
@@ -215,6 +301,15 @@ export function evaluateCandidate(input: CandidateInput, ctx: PipelineContext): 
     scoringSimCostBps: ctx.config.scoringSimCostBps,
   });
 
+  // Two ledgers: scored friction (competition cost, drives net-edge) and the
+  // measured real round-trip (Wallet Ledger, drives the wallet floor). Real cost
+  // falls back to the modeled real friction at size until a real fill is measured.
+  const scoredFrictionBps = computeScoredFrictionBps({
+    notionalUsd: Math.max(positionSizeUsd, 1),
+    scoringSimCostBps: ctx.config.scoringSimCostBps,
+  });
+  const realRoundTripBps = ctx.realRoundTripBps ?? friction.realFrictionBps;
+
   // Shadow-fill deviation (modeled from reserves when not supplied).
   const shadow = input.shadow ?? { expectedOut: 1, simulatedOut: 1 };
   const shadowResult = evaluateShadowFill({
@@ -222,6 +317,16 @@ export function evaluateCandidate(input: CandidateInput, ctx: PipelineContext): 
     simulatedOut: shadow.simulatedOut,
     toleranceBps: ctx.config.shadowFillToleranceBps,
   });
+
+  const netEdge = input.isMicroScout
+    ? undefined
+    : evaluateNetEdge({
+        expectedMoveBps,
+        scoredFrictionBps,
+        netEdgeMinBps: ctx.config.netEdgeMinBps,
+        realRoundTripBps,
+        walletFloorFraction: ctx.config.walletFloorFraction,
+      });
 
   // Risk Constitution.
   const riskGate = evaluateRiskGates(
@@ -237,7 +342,8 @@ export function evaluateCandidate(input: CandidateInput, ctx: PipelineContext): 
       isNonSpot: input.isNonSpot ?? false,
       notionalUsd: positionSizeUsd,
       expectedMoveBps,
-      frictionBps: friction.frictionBps,
+      scoredFrictionBps,
+      realRoundTripBps,
       shadowFill: shadow,
       isMicroScout: input.isMicroScout,
     },
@@ -250,6 +356,7 @@ export function evaluateCandidate(input: CandidateInput, ctx: PipelineContext): 
       calibrationStale: ctx.calibrationStale,
       marketDataStale: ctx.marketDataStale,
       survivalMode: ctx.survivalMode,
+      regime: ctx.marketRegime,
     },
     {
       config: ctx.config,
@@ -263,9 +370,11 @@ export function evaluateCandidate(input: CandidateInput, ctx: PipelineContext): 
     frictionBps: friction.frictionBps,
     realFrictionBps: friction.realFrictionBps,
     simulatedCostBps: friction.simulatedCostBps,
-    netEdgePassed: input.isMicroScout
-      ? true
-      : evaluateNetEdge({ expectedMoveBps, frictionBps: friction.frictionBps, netEdgeMinBps: ctx.config.netEdgeMinBps }).passed,
+    scoredFrictionBps,
+    realRoundTripBps,
+    walletFloorBps: netEdge?.walletFloorBps,
+    walletFloorPassed: netEdge?.walletFloorPassed,
+    netEdgePassed: input.isMicroScout ? true : (netEdge?.passed ?? false),
     stopDistancePct,
     stopCoherencePassed,
     shadowFillDeviationBps: shadowResult.deviationBps,
@@ -332,6 +441,8 @@ export function evaluateCandidate(input: CandidateInput, ctx: PipelineContext): 
     reasons,
     economics,
     governor: { sizeFraction: governor.sizeFraction, bindingLayer: governor.bindingLayer, remainingBudgetPct: governor.remainingBudgetPct },
+    riskState: input.isMicroScout ? undefined : ctx.riskState,
+    sizeMultiplier: input.isMicroScout ? undefined : sizeMultiplier,
     intent,
   };
 }

@@ -16,7 +16,7 @@ export type MandateAction =
   | "hold"
   | "pause";
 
-export type SignalFamily = "momentum" | "catalyst" | "scout" | "safety";
+export type SignalFamily = "momentum" | "catalyst" | "rs_continuation" | "scout" | "safety";
 export type RiskClass = "conservative" | "balanced" | "aggressive" | "blocked";
 export type ExecutionStatus =
   | "not_submitted"
@@ -35,6 +35,7 @@ export const RejectCode = {
   NON_SPOT: "REJECT_NON_SPOT",
   INELIGIBLE_CONTRACT: "REJECT_INELIGIBLE_CONTRACT",
   NET_EDGE: "REJECT_NET_EDGE",
+  WALLET_FLOOR: "REJECT_WALLET_FLOOR",
   STOP_COHERENCE: "REJECT_STOP_COHERENCE",
   SHADOW_FILL: "REJECT_SHADOW_FILL",
   WRONG_CHAIN: "REJECT_WRONG_CHAIN",
@@ -43,6 +44,11 @@ export const RejectCode = {
   INFINITE_APPROVAL: "REJECT_INFINITE_APPROVAL",
   HELD_NATIVE_OR_WBNB: "REJECT_HELD_NATIVE_OR_WBNB",
   DUST_TRADE: "REJECT_DUST_TRADE",
+  FIRST_SPIKE: "REJECT_FIRST_SPIKE",
+  TRENDING_STALE: "REJECT_TRENDING_STALE",
+  NO_VOLUME_EXPANSION: "REJECT_NO_VOLUME_EXPANSION",
+  RS_NOT_CONFIRMED: "REJECT_RS_NOT_CONFIRMED",
+  REGIME_RED: "REJECT_REGIME_RED",
   STALE_DATA: "REJECT_STALE_DATA",
   STALE_CALIBRATION: "REJECT_STALE_CALIBRATION",
   DRAWDOWN_BUDGET: "REJECT_DRAWDOWN_BUDGET",
@@ -80,6 +86,14 @@ export interface MandateEconomics {
   frictionBps: number; // includes simulated scoring cost
   realFrictionBps: number;
   simulatedCostBps: number;
+  /** Scored Ledger: round-trip cost the competition charges (drives net-edge gate). */
+  scoredFrictionBps: number;
+  /** Wallet Ledger: measured/modeled real round-trip cost (drives the wallet floor). */
+  realRoundTripBps?: number;
+  /** walletFloorFraction × realRoundTripBps — the wallet-loss sanity threshold. */
+  walletFloorBps?: number;
+  /** Whether expected move cleared the wallet floor. */
+  walletFloorPassed?: boolean;
   expectedMoveBps: number;
   netEdgePassed: boolean;
   stopDistancePct?: number;
@@ -126,6 +140,8 @@ export interface MandateProofAnchors {
   bscTxHash?: string;
   twakReceipt?: string;
   x402Receipt?: string;
+  /** Which x402 path settled the payment — never label the viem fallback as TWAK. */
+  x402Path?: "twak" | "viem_fallback";
   cmcRequestId?: string;
   bitgetRequestId?: string;
   paperFillSource?: string;

@@ -12,8 +12,14 @@ One shared deterministic core, two focused submissions:
 Both submissions are built. The shared TypeScript core is the source of truth for
 the frontend, backend, and worker. External integrations (Bitget public data, CMC
 Agent Hub + x402, Trust Wallet Agent Kit, BNB AI Agent SDK, PancakeSwap) are real
-adapters that fail loudly when unconfigured — never faked. ~190 tests pass;
-`typecheck`, `lint`, and the Next.js build are green.
+adapters that fail loudly when unconfigured — never faked. **284 tests pass**
+(including a live BSC-mainnet read); `typecheck`, `lint`, and the Next.js build are
+green. The BSC build also runs live on a VPS (web + api) kept in sync each change.
+
+A **win-first upgrade** (workstreams WS1–WS8) is in on branch `win-first-upgrade`:
+every feature sits INSIDE the existing safety gates (spot-only, TWAK-only,
+eligible-contracts-only). WS9 (ops/docs) and the final audit pass remain — see
+[`AGENTS.md`](AGENTS.md) for the exact continuation plan.
 
 ### What's implemented
 
@@ -30,9 +36,33 @@ adapters that fail loudly when unconfigured — never faked. ~190 tests pass;
   `apps/worker` (recovery + loop + snapshots), `apps/web` `/bsc` dashboards incl.
   the `/bsc/proof` judge scoreboard.
 
+### Win-first upgrade (branch `win-first-upgrade`)
+
+Offense + precision, all inside the existing gates. Each is deterministic (the LLM
+touches none of it), restart-safe, tested, and surfaced on the dashboards:
+
+- **WS1 — Two ledgers**: Scored (simulated cost → net-edge gate) vs Wallet (real
+  round-trip → wallet floor); both on every mandate.
+- **WS2 — Trailing-stop ratchet**: per-position HWM → breakeven+fees → trail, exit
+  on breach, persisted/restored.
+- **WS3 — Fast position-watch loop**: protection cadence between decision cycles,
+  staleness alert, `/bsc/ops` heartbeat.
+- **WS4 — TWAK-first x402**: pay via `twak x402 request`; viem demoted to a labeled
+  fallback; `X402_REQUIRED` blocks the dependent trade.
+- **WS5 — Entry quality + `rs_continuation`**: catalyst uncrowding (trending delta,
+  volume expansion, no first spike) + relative-strength continuation; per-family
+  calibration; restart-safe signal history.
+- **WS6 — Week-schedule risk budget**: HUNT/PRESS/DEFEND state machine, leg-counting,
+  win-first sizing; the multiplier scales only the governor cap, never the hard caps.
+- **WS7 — Red-day regime analyst**: GREEN/NEUTRAL/RED 3-signal vote with hysteresis;
+  RED blocks new entries (`REJECT_REGIME_RED`) and rotates open risk to stables.
+- **WS8 — Measured TWAK round-trip cost**: realized cost measured from fills (isolated
+  from price move), feeding the wallet floor and an enforced dust gate
+  (`REJECT_DUST_TRADE`).
+
 Docs: `docs/{SETUP,COMPETITION_RULES,BITGET_SUBMISSION,BNB_SUBMISSION,SPECIAL_PRIZES,
 SAFETY,LLM_POLICY,ECONOMICS,OPERATIONS,PREFLIGHT,SELF_AUDIT}.md`. Start with
-`docs/SETUP.md`.
+`docs/SETUP.md`. For build state + the continuation plan, see [`AGENTS.md`](AGENTS.md).
 
 ## Develop
 

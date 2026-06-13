@@ -22,6 +22,8 @@ export interface MandateBuildInput {
   id: string;
   /** Optional proof anchors known at build time (e.g. x402 receipt). */
   x402Receipt?: string;
+  /** Which x402 path settled the perception payment this cycle. */
+  x402Path?: "twak" | "viem_fallback";
   cmcRequestId?: string;
 }
 
@@ -59,6 +61,10 @@ export function buildBscMandate(input: MandateBuildInput): SignalMandate {
       frictionBps: r.economics.frictionBps,
       realFrictionBps: r.economics.realFrictionBps,
       simulatedCostBps: r.economics.simulatedCostBps,
+      scoredFrictionBps: r.economics.scoredFrictionBps,
+      realRoundTripBps: r.economics.realRoundTripBps,
+      walletFloorBps: r.economics.walletFloorBps,
+      walletFloorPassed: r.economics.walletFloorPassed,
       expectedMoveBps: r.economics.expectedMoveBps,
       netEdgePassed: r.economics.netEdgePassed,
       stopDistancePct: r.economics.stopDistancePct,
@@ -82,6 +88,7 @@ export function buildBscMandate(input: MandateBuildInput): SignalMandate {
     watchdog: { armed: r.approved, triggers: [], actionsTaken: [] },
     proofAnchors: {
       x402Receipt: input.x402Receipt,
+      x402Path: input.x402Path,
       cmcRequestId: input.cmcRequestId,
       marketDataTimestamp: input.marketDataTimestamp,
     },

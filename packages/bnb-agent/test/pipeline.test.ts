@@ -5,6 +5,7 @@ import {
   parseMandate,
   type BscScoreInputs,
   type CalibrationReport,
+  type SignalObservation,
 } from "@wardenclaw/core";
 import type { TwakPolicyConfig } from "@wardenclaw/twak-adapter";
 import { evaluateCandidate, buildBscMandate, type CandidateInput, type PipelineContext } from "../src/index.js";
@@ -128,6 +129,47 @@ describe("evaluateCandidate — approval", () => {
   });
 });
 
+describe("evaluateCandidate — two ledgers (WS1)", () => {
+  it("carries both the scored and wallet ledgers on the economics block and mandate", () => {
+    const r = evaluateCandidate(candidate(), ctx());
+    expect(r.economics.scoredFrictionBps).toBe(DEFAULT_RISK_CONFIG.scoringSimCostBps * 2);
+    expect(r.economics.realRoundTripBps).toBeGreaterThan(0);
+    expect(r.economics.walletFloorBps).toBeGreaterThan(0);
+    expect(r.economics.walletFloorPassed).toBe(true);
+
+    const m = buildBscMandate({
+      result: r,
+      mode: "rehearsal",
+      strategyId: "s",
+      naturalLanguageIntent: "n",
+      compiledStrategy: {},
+      assetContract: CAKE,
+      cmcToolsUsed: ["quotes"],
+      marketDataTimestamp: "2026-06-22T00:00:00Z",
+      calibrationVersion: calibration.version,
+      createdAt: "2026-06-22T00:00:00Z",
+      id: "bsc-ledgers",
+    });
+    expect(m.economics.scoredFrictionBps).toBe(r.economics.scoredFrictionBps);
+    expect(m.economics.realRoundTripBps).toBe(r.economics.realRoundTripBps);
+    expect(m.economics.walletFloorPassed).toBe(true);
+  });
+
+  it("rejects a scored-positive but wallet-ruinous trade via the wallet floor", () => {
+    // Scored cost is tiny (default 10/leg → 20bps), so a modest move clears the
+    // scored gate; but a measured real round-trip of 300bps puts the wallet floor
+    // at 225bps, which the calibrated move (120) cannot clear. 300bps stays under
+    // the dust ceiling, so it is the wallet floor — not the dust gate — that vetoes.
+    const lowMove: CalibrationReport = {
+      ...calibration,
+      bands: [{ minScore: 80, realizedMoveBps: 120, hitRate: 0.9, realizedVsPredicted: 1 }],
+    };
+    const r = evaluateCandidate(candidate(), ctx({ calibration: lowMove, realRoundTripBps: 300 }));
+    expect(r.approved).toBe(false);
+    expect(r.rejectCode).toBe("REJECT_WALLET_FLOOR");
+  });
+});
+
 describe("evaluateCandidate — gate rejections", () => {
   it("rejects a low score (REJECT_LOW_SCORE)", () => {
     const weak = { ...strongInputs, momentum: 0.2, liquiditySafety: 0.2, relativeStrengthVsBnb: 0.2, sentiment: 0.2, volatilitySafety: 0.2, walletRiskState: 0.2 };
@@ -195,5 +237,161 @@ describe("evaluateCandidate — governor + micro-scout", () => {
     );
     expect(r.approved).toBe(false);
     expect(r.rejectCode).toBe("REJECT_INELIGIBLE_CONTRACT");
+  });
+});
+
+describe("evaluateCandidate — week-schedule risk budget (WS6)", () => {
+  it("DEFEND shrinks position size below the HUNT baseline", () => {
+    const baseline = evaluateCandidate(candidate(), ctx());
+    const defend = evaluateCandidate(candidate(), ctx({ sizeMultiplier: 0.5, riskState: "DEFEND" }));
+    expect(defend.approved).toBe(true);
+    expect(defend.economics.positionSizeUsd).toBeLessThan(baseline.economics.positionSizeUsd);
+    expect(defend.riskState).toBe("DEFEND");
+    expect(defend.sizeMultiplier).toBe(0.5);
+    expect(defend.reasons.some((s) => s.includes("week budget DEFEND"))).toBe(true);
+  });
+
+  it("PRESS grows position size above the HUNT baseline", () => {
+    const baseline = evaluateCandidate(candidate(), ctx());
+    const press = evaluateCandidate(candidate(), ctx({ sizeMultiplier: 1.3, riskState: "PRESS" }));
+    expect(press.approved).toBe(true);
+    expect(press.economics.positionSizeUsd).toBeGreaterThan(baseline.economics.positionSizeUsd);
+    expect(press.riskState).toBe("PRESS");
+  });
+
+  it("a large PRESS multiplier is still bounded by the hard caps (never breaches them)", () => {
+    const press = evaluateCandidate(candidate(), ctx({ sizeMultiplier: 5, riskState: "PRESS" }));
+    expect(press.approved).toBe(true);
+    // maxPositionPct (70%) of deployable ($38) = $26.6; the volatility-stop size is
+    // even tighter here, so a 5× multiplier cannot push size past those caps.
+    expect(press.economics.positionSizeUsd).toBeLessThanOrEqual(26.6);
+  });
+
+  it("does not apply the week multiplier to a Micro-Scout", () => {
+    const scout = evaluateCandidate(
+      candidate({ symbol: "USDC", tokenInAddress: USDT, tokenOutAddress: USDC, isMicroScout: true }),
+      ctx({ sizeMultiplier: 0.5, riskState: "DEFEND" }),
+    );
+    expect(scout.approved).toBe(true);
+    expect(scout.economics.positionSizeUsd).toBe(DEFAULT_RISK_CONFIG.microScoutUsd);
+    expect(scout.sizeMultiplier).toBeUndefined();
+  });
+});
+
+describe("evaluateCandidate — measured cost + dust gate (WS8)", () => {
+  it("rejects a dust trade when the measured real round-trip exceeds the ceiling", () => {
+    const r = evaluateCandidate(candidate(), ctx({ realRoundTripBps: 400 }));
+    expect(r.approved).toBe(false);
+    expect(r.rejectCode).toBe("REJECT_DUST_TRADE");
+  });
+
+  it("approves when the measured real round-trip stays under the ceiling", () => {
+    const r = evaluateCandidate(candidate(), ctx({ realRoundTripBps: 120 }));
+    expect(r.approved).toBe(true);
+    expect(r.economics.realRoundTripBps).toBe(120);
+  });
+
+  it("exempts the Micro-Scout from the dust gate even at a high measured cost", () => {
+    const scout = evaluateCandidate(
+      candidate({ symbol: "USDC", tokenInAddress: USDT, tokenOutAddress: USDC, isMicroScout: true }),
+      ctx({ realRoundTripBps: 400 }),
+    );
+    expect(scout.approved).toBe(true);
+  });
+});
+
+describe("evaluateCandidate — red-day regime (WS7)", () => {
+  it("blocks a directional entry when the committed regime is RED", () => {
+    const r = evaluateCandidate(candidate(), ctx({ marketRegime: "RED" }));
+    expect(r.approved).toBe(false);
+    expect(r.rejectCode).toBe("REJECT_REGIME_RED");
+  });
+
+  it("still approves the stable↔stable Micro-Scout in a RED regime (rotation to stables)", () => {
+    const scout = evaluateCandidate(
+      candidate({ symbol: "USDC", tokenInAddress: USDT, tokenOutAddress: USDC, isMicroScout: true }),
+      ctx({ marketRegime: "RED" }),
+    );
+    expect(scout.approved).toBe(true);
+    expect(scout.signalFamily).toBe("scout");
+  });
+
+  it("approves a directional entry in GREEN/NEUTRAL regimes", () => {
+    expect(evaluateCandidate(candidate(), ctx({ marketRegime: "GREEN" })).approved).toBe(true);
+    expect(evaluateCandidate(candidate(), ctx({ marketRegime: "NEUTRAL" })).approved).toBe(true);
+  });
+});
+
+describe("evaluateCandidate — entry-quality gates (WS5)", () => {
+  const catObs = (price: number, volume: number, rank: number | undefined): SignalObservation => ({
+    checkIso: "2026-06-22T00:00:00Z",
+    price,
+    volume24hUsd: volume,
+    change24hPct: 0,
+    trendingRank: rank,
+  });
+  const rsObs = (change: number, benchmark: number | undefined, volume: number): SignalObservation => ({
+    checkIso: "2026-06-22T00:00:00Z",
+    price: 1,
+    volume24hUsd: volume,
+    change24hPct: change,
+    benchmarkChange24hPct: benchmark,
+  });
+
+  it("rejects a catalyst on a stale trending rank (REJECT_TRENDING_STALE)", () => {
+    const r = evaluateCandidate(
+      candidate({ entryObservations: [catObs(1.0, 100, 10), catObs(1.05, 300, 9)] }),
+      ctx(),
+    );
+    expect(r.approved).toBe(false);
+    expect(r.rejectCode).toBe("REJECT_TRENDING_STALE");
+  });
+
+  it("approves a catalyst whose uncrowding checks all clear", () => {
+    // Climbing rank, expanding volume, post-spike continuation reclaiming the base high.
+    const obs = [
+      catObs(1.0, 100, 30),
+      catObs(1.2, 100, 25),
+      catObs(1.15, 100, 20),
+      catObs(1.16, 100, 15),
+      catObs(1.25, 300, 10),
+    ];
+    const r = evaluateCandidate(candidate({ entryObservations: obs }), ctx());
+    expect(r.approved).toBe(true);
+    expect(r.reasons.some((s) => s.startsWith("catalyst entry:"))).toBe(true);
+  });
+
+  it("rejects rs_continuation without two confirmed outperformance checks", () => {
+    const r = evaluateCandidate(
+      candidate({ signalFamily: "rs_continuation", entryObservations: [rsObs(5, 2, 100), rsObs(3, 2.5, 150)] }),
+      ctx(),
+    );
+    expect(r.approved).toBe(false);
+    expect(r.rejectCode).toBe("REJECT_RS_NOT_CONFIRMED");
+  });
+
+  it("approves rs_continuation on two outperformance checks with rising volume", () => {
+    const r = evaluateCandidate(
+      candidate({ signalFamily: "rs_continuation", entryObservations: [rsObs(5, 2, 100), rsObs(6, 2.5, 150)] }),
+      ctx(),
+    );
+    expect(r.approved).toBe(true);
+    expect(r.signalFamily).toBe("rs_continuation");
+    expect(r.reasons.some((s) => s.startsWith("rs continuation:"))).toBe(true);
+  });
+
+  it("ignores entry gates for a Micro-Scout even when observations are stale", () => {
+    const r = evaluateCandidate(
+      candidate({
+        symbol: "USDC",
+        tokenInAddress: USDT,
+        tokenOutAddress: USDC,
+        isMicroScout: true,
+        entryObservations: [catObs(1.0, 100, 10), catObs(1.05, 300, 9)],
+      }),
+      ctx(),
+    );
+    expect(r.approved).toBe(true);
+    expect(r.signalFamily).toBe("scout");
   });
 });

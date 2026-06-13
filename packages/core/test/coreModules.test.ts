@@ -13,6 +13,7 @@ import {
   hasExternalProof,
   verifyCompetitionRules,
   buildCalibrationReport,
+  buildPerFamilyCalibration,
 } from "../src/index.js";
 
 describe("watchdog", () => {
@@ -160,5 +161,26 @@ describe("calibration report builder", () => {
     const top = report.bands.find((b) => b.minScore === 80)!;
     expect(top.realizedMoveBps).toBeCloseTo(220, 1);
     expect(top.hitRate).toBeCloseTo(0.5, 5);
+  });
+
+  it("splits samples per signal family with family-versioned reports", () => {
+    const samples = [
+      { score: 82, realizedMoveBps: 200, win: true, family: "catalyst" },
+      { score: 85, realizedMoveBps: 300, win: true, family: "catalyst" },
+      { score: 81, realizedMoveBps: 120, win: false, family: "rs_continuation" },
+      { score: 70, realizedMoveBps: 40, win: true }, // unlabeled
+    ];
+    const perFamily = buildPerFamilyCalibration(samples, [65, 80], {
+      version: "cal-2026-06-13",
+      generatedAt: "2026-06-13T00:00:00Z",
+      historyDays: 30,
+    });
+    // Families sorted alphabetically: catalyst, rs_continuation, unlabeled.
+    expect(perFamily.map((f) => f.family)).toEqual(["catalyst", "rs_continuation", "unlabeled"]);
+    const cat = perFamily.find((f) => f.family === "catalyst")!;
+    expect(cat.sampleCount).toBe(2);
+    expect(cat.report.version).toBe("cal-2026-06-13-catalyst");
+    expect(cat.report.bands.find((b) => b.minScore === 80)!.realizedMoveBps).toBeCloseTo(250, 1);
+    expect(perFamily.find((f) => f.family === "unlabeled")!.sampleCount).toBe(1);
   });
 });
