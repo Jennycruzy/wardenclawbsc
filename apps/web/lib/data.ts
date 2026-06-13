@@ -174,6 +174,30 @@ export function readWeekBudget(): WeekBudgetSnapshot | null {
   }
 }
 
+// ---- Red-day regime analyst (WS7) -----------------------------------------
+
+export interface RegimeSnapshot {
+  lastBeatIso: string;
+  regime: "GREEN" | "NEUTRAL" | "RED";
+  rawRegime: "GREEN" | "NEUTRAL" | "RED";
+  score: number;
+  blocksEntries: boolean;
+  benchmarkChange24hPct: number;
+  fearGreed: number;
+  breadthUpFraction: number;
+  reason: string;
+}
+
+export function readRegime(): RegimeSnapshot | null {
+  const f = join(RUNTIME_DIR, "regime.snapshot.json");
+  if (!existsSync(f)) return null;
+  try {
+    return JSON.parse(readFileSync(f, "utf8")) as RegimeSnapshot;
+  } catch {
+    return null;
+  }
+}
+
 // ---- Environment / mode readouts -----------------------------------------
 
 export interface BscEnv {

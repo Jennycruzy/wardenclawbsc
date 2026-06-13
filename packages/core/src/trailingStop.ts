@@ -50,6 +50,8 @@ export const ExitReason = {
   STOP: "EXIT_STOP",
   /** Breached the ratcheted trail (breakeven armed) — locking in the runner. */
   TRAIL_RATCHET: "EXIT_TRAIL_RATCHET",
+  /** Rotated to stables because the market regime turned RED (WS7). */
+  REGIME_RED: "EXIT_REGIME_RED",
 } as const;
 export type ExitReason = (typeof ExitReason)[keyof typeof ExitReason];
 
