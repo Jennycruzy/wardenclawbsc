@@ -17,12 +17,15 @@ import {
   type ProviderEnv,
 } from "./provider.js";
 import { OpenAiProvider, type OpenAiProviderConfig } from "./openaiProvider.js";
+import { QwenProvider, type QwenProviderConfig, DEFAULT_QWEN_MODEL } from "./qwenProvider.js";
 import { AnthropicProvider, type AnthropicProviderConfig } from "./anthropicProvider.js";
 import { LocalProvider } from "./localProvider.js";
 
 export interface LlmFactoryEnv extends ProviderEnv {
   OPENAI_BASE_URL?: string;
   OPENAI_MODEL?: string;
+  QWEN_BASE_URL?: string;
+  QWEN_MODEL?: string;
   ANTHROPIC_BASE_URL?: string;
   ANTHROPIC_MODEL?: string;
   LOCAL_MODEL?: string;
@@ -56,6 +59,15 @@ export function createLlmProvider(
       // provider's own default via object spread.
       if (env.OPENAI_BASE_URL) cfg.baseUrl = env.OPENAI_BASE_URL;
       return new OpenAiProvider(cfg);
+    }
+    case "qwen": {
+      if (!env.QWEN_API_KEY) return new DisabledProvider();
+      const cfg: QwenProviderConfig = {
+        apiKey: env.QWEN_API_KEY,
+        model: model ?? env.QWEN_MODEL ?? DEFAULT_QWEN_MODEL,
+      };
+      if (env.QWEN_BASE_URL) cfg.baseUrl = env.QWEN_BASE_URL;
+      return new QwenProvider(cfg);
     }
     case "anthropic": {
       if (!env.ANTHROPIC_API_KEY) return new DisabledProvider();

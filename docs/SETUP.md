@@ -62,9 +62,10 @@ you have manually confirmed the live steps: `REHEARSAL_OVERRIDE=true`).
 
 ## LLM (optional)
 
-Set `LLM_PROVIDER` (or just an `ANTHROPIC_API_KEY`/`OPENAI_API_KEY`). With no key,
-the system runs in deterministic/manual mode — trading still works; the dashboards
-show "LLM disabled". The LLM never makes a trade decision (`docs/LLM_POLICY.md`).
+Set `LLM_PROVIDER` (or just an `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, or
+`QWEN_API_KEY`). With no key, the system runs in deterministic/manual mode:
+trading still works and `pnpm explain:strategy` emits an extractive template.
+The LLM never makes a trade decision (`docs/LLM_POLICY.md`).
 
 ## Where things are
 

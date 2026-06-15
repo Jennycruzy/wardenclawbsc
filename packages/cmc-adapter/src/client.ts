@@ -67,6 +67,28 @@ export class CmcClient {
     return res.json();
   }
 
+  /** API-key account/usage metadata. This is a cheap authenticated wiring probe. */
+  async getKeyInfo(): Promise<Record<string, unknown>> {
+    const body = (await this.get("/v1/key/info")) as {
+      data?: Record<string, unknown>;
+    };
+    if (!body.data || typeof body.data !== "object") {
+      throw new CmcApiError("CMC returned no key info payload");
+    }
+    return body.data;
+  }
+
+  /** Static metadata used to resolve a symbol to its listed platform contract. */
+  async getMetadata(symbols: string[]): Promise<Record<string, unknown>> {
+    const body = (await this.get(
+      `/v2/cryptocurrency/info?symbol=${encodeURIComponent(symbols.join(","))}&aux=platform`,
+    )) as { data?: Record<string, unknown> };
+    if (!body.data || Object.keys(body.data).length === 0) {
+      throw new CmcApiError(`CMC returned no metadata for ${symbols.join(",")}`);
+    }
+    return body.data;
+  }
+
   /** Latest quotes for one or more symbols. */
   async getQuotes(symbols: string[]): Promise<CmcSignal<CmcQuote[]>> {
     const body = (await this.get(

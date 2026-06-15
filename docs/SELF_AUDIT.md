@@ -27,6 +27,15 @@ the code never labels them complete without real evidence.
 | 8 | Measure real round-trip cost from fills; persist rolling estimate; wallet floor and dust gate react | implemented | `ledgers.ts`, worker `wallet-cost.json`, `/bsc/ops`, `/bsc/proof`; `ledgers.test.ts`, `riskGates.test.ts`, `pipeline.test.ts` |
 | 9 | Dated preflight countdown; registration-first checklist; reminders escalating after June 18; final docs | implemented | API registration timer, `registrationAlertState`, `/bsc/ops`, `docs/PREFLIGHT.md`, `ECONOMICS.md`, `OPERATIONS.md`, `SPECIAL_PRIZES.md`; `runtime.test.ts` |
 
+## Qwen, routing, explanation, and CMC proof
+
+| Part | Requirement | Status | Evidence |
+|---|---|---|---|
+| 1 | First-class Qwen provider using DashScope OpenAI compatibility and the shared repair loop | implemented | `llm/qwenProvider.ts`, `llm/factory.ts`; `qwenProvider.test.ts` |
+| 2 | Per-role provider/model routing with Qwen tier defaults and env overrides | implemented | `llm/roles.ts`, `.env.example`, `docs/LLM_POLICY.md`; `roles.test.ts` |
+| 3 | Audit-grounded strategy explanation with deterministic disabled fallback | implemented | `strategyExplanation.ts`, `scripts/explain-strategy.ts`, generated `docs/STRATEGY_EXPLANATION.*`; `strategyExplanation.test.ts` |
+| 4 | Real CMC key/client/surface preflight plus no-spend x402 reachability | implemented | `cmc-adapter/wiringCheck.ts`, `scripts/check-cmc-wiring.ts`, rehearsal checklist; `wiringCheck.test.ts` |
+
 ## Seven honesty answers
 
 1. **Can any entry reach TWAK without eligibility, scored net-edge, wallet floor,
@@ -67,7 +76,28 @@ the code never labels them complete without real evidence.
 Additional adversarial coverage includes off-list contracts, wrong chain/router,
 non-spot intents, WBNB holding, infinite approvals, stale data, stale calibration,
 wallet-ruinous scored-positive trades, scored-negative wallet-positive trades,
-dust cost, dead RPC failover, malformed LLM output, and x402 failure.
+dust cost, dead RPC failover, malformed LLM output, Qwen repair retry, role
+override selection, invented explanation prose/trades, CMC placeholder keys,
+per-surface CMC authorization failure, and x402 failure.
+
+## Additive-task answers
+
+1. **Can any LLM output reach a trade decision, size, price, or gate verdict?**
+   No. Provider calls are confined to structured strategy compilation and
+   narration/classification schemas. The new call site is
+   `draftStrategyExplanation`; it only writes documentation. The deterministic
+   pipeline and TWAK execution modules are unchanged.
+2. **Does the agent still trade with zero LLM keys?** Yes. `compileStrategy`
+   retains its validated manual fallback, `createRoleProvider` returns
+   `DisabledProvider`, and the disabled-mode tests pass.
+3. **Can `explain:strategy` invent a claim absent from its audit inputs?** No.
+   Prose must be an exact sentence from the deterministic field basis; invalid
+   prose is replaced, and notable trades are copied from persisted records.
+4. **Does `check:cmc` make real calls through the agent client?** Yes.
+   `checkCmcWiring` constructs `CmcClient` and calls its key-info, quotes,
+   trending, Fear & Greed, and metadata methods. The CLI uses global `fetch`.
+5. **Is the change additive?** Yes. No scorer, gate, governor, stop, regime,
+   mandate approval, or TWAK execution module was changed.
 
 ## Gate
 
@@ -78,5 +108,5 @@ pnpm typecheck && pnpm lint && pnpm test
 pnpm --filter @wardenclaw/web build
 ```
 
-Result: typecheck green, lint green, **288 tests passed**, including the live
+Result: typecheck green, lint green, **316 tests passed**, including the live
 BSC-mainnet reserve/quote read, and the production Next.js build green.

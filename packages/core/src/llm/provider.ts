@@ -11,7 +11,7 @@
 
 import type { ZodType } from "zod";
 
-export type LlmProviderName = "anthropic" | "openai" | "local" | "disabled";
+export type LlmProviderName = "anthropic" | "openai" | "qwen" | "local" | "disabled";
 
 export interface LlmMessage {
   system: string;
@@ -111,6 +111,7 @@ export interface ProviderEnv {
   LLM_ENABLED?: string;
   ANTHROPIC_API_KEY?: string;
   OPENAI_API_KEY?: string;
+  QWEN_API_KEY?: string;
   LOCAL_LLM_URL?: string;
 }
 
@@ -122,8 +123,8 @@ export interface ProviderSelection {
 
 /**
  * Resolve which provider to use. Explicit LLM_PROVIDER wins; otherwise prefer
- * anthropic if its key exists, then openai, else disabled. LLM_ENABLED=false
- * forces disabled regardless.
+ * anthropic if its key exists, then openai, then qwen, else disabled.
+ * LLM_ENABLED=false forces disabled regardless.
  */
 export function selectProvider(env: ProviderEnv): ProviderSelection {
   if (env.LLM_ENABLED === "false") {
@@ -133,7 +134,12 @@ export function selectProvider(env: ProviderEnv): ProviderSelection {
   if (explicit === "disabled") {
     return { name: "disabled", enabled: false, reason: "LLM_PROVIDER=disabled" };
   }
-  if (explicit === "anthropic" || explicit === "openai" || explicit === "local") {
+  if (
+    explicit === "anthropic" ||
+    explicit === "openai" ||
+    explicit === "qwen" ||
+    explicit === "local"
+  ) {
     return { name: explicit, enabled: true, reason: `LLM_PROVIDER=${explicit}` };
   }
   if (env.ANTHROPIC_API_KEY) {
@@ -141,6 +147,9 @@ export function selectProvider(env: ProviderEnv): ProviderSelection {
   }
   if (env.OPENAI_API_KEY) {
     return { name: "openai", enabled: true, reason: "OPENAI_API_KEY present" };
+  }
+  if (env.QWEN_API_KEY) {
+    return { name: "qwen", enabled: true, reason: "QWEN_API_KEY present" };
   }
   return { name: "disabled", enabled: false, reason: "no provider key configured" };
 }

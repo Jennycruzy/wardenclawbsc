@@ -20,7 +20,9 @@
     "replay": "tsx scripts/replay-mandate.ts",
     "rehearsal:checklist": "tsx scripts/rehearsal-checklist.ts",
     "verify:integrations": "tsx scripts/verify-integrations.ts",
-    "verify:llm": "tsx scripts/verify-llm.ts"
+    "verify:llm": "tsx scripts/verify-llm.ts",
+    "explain:strategy": "tsx scripts/explain-strategy.ts",
+    "check:cmc": "tsx scripts/check-cmc-wiring.ts"
   },
   "devDependencies": {
     "@wardenclaw/bnb-agent": "workspace:*",

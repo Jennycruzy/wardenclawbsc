@@ -36,6 +36,18 @@ KILL_SWITCH_TOKEN
 REGISTRATION_TX_HASH
 ```
 
+Before rehearsal, run:
+
+```bash
+pnpm check:cmc
+pnpm explain:strategy
+```
+
+The first command must pass before CMC is considered proven in the rehearsal
+checklist. It uses the worker's `CmcClient`, not a separate test client. The
+second reads persisted mandates, audit events, week/regime state, ledgers, and
+watchdog exits; without an LLM key it still writes the deterministic draft.
+
 ## Protection loop
 
 The position watch runs every `POSITION_WATCH_INTERVAL_SECONDS` only while a

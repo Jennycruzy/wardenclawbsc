@@ -83,12 +83,14 @@ policy** at the signer (the refusal demo, below). See `docs/SPECIAL_PRIZES.md`.
 ```bash
 pnpm install
 pnpm verify:integrations            # readiness report
+pnpm check:cmc                      # real key/client/surface proof
 pnpm build:eligible-tokens          # CMC-resolved contracts (needs CMC_API_KEY)
 pnpm calibrate:edge                 # tune the score→move mapping on real history
 pnpm backtest:bsc                   # economics on the $40 book
 pnpm demo:twak-refusal              # TWAK refuses bad trades, live
 pnpm run:bsc-agent                  # dry decision run on real CMC data (no signing)
 pnpm rehearsal:checklist            # §0.12 gate → docs/PREFLIGHT.md
+pnpm explain:strategy               # paste-ready audit-grounded write-up
 pnpm --filter @wardenclaw/web dev     # dashboards: /bsc, /bsc/proof, /bsc/ops
 ```
 

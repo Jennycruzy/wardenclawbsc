@@ -60,9 +60,11 @@ cd ../..
 ## 3. Pre-flight (do this before June 22)
 
 ```bash
+pnpm check:cmc                    # real key/client/surface wiring proof
 pnpm build:eligible-tokens          # CMC-resolved contracts
 pnpm calibrate:edge                 # real calibration
 pnpm verify:integrations -- --live  # must pass
+pnpm explain:strategy               # audit-grounded DoraHacks draft
 twak compete register --json        # → record "hash" as REGISTRATION_TX_HASH
 pnpm rehearsal:checklist            # complete the manual live steps → gate passes
 ```

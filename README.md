@@ -25,7 +25,7 @@ The win-first upgrade, operations pass, and final self-audit are implemented on
 
 - `pnpm typecheck`: green
 - `pnpm lint`: green
-- `pnpm test`: **288 tests passed**
+- `pnpm test`: **316 tests passed**
 - Live BSC reserve and quote read: passed
 - Production Next.js build: green
 - VPS web and API: deployed from `main`
@@ -35,7 +35,7 @@ The software is built, but the following real-world actions cannot be completed
 by code and are still operator responsibilities:
 
 1. Run `twak compete register` and set `REGISTRATION_TX_HASH`.
-2. Build the eligible-token file using a real `CMC_API_KEY`.
+2. Run `pnpm check:cmc`, then build the eligible-token file using the proven key.
 3. Fund the TWAK wallet with eligible stables and separate gas BNB.
 4. Complete the $5 mainnet rehearsal, including watchdog and trailing exits.
 5. Run fresh edge calibration.
@@ -206,7 +206,19 @@ pnpm verify:competition-rules
 pnpm verify:integrations
 pnpm verify:integrations -- --live
 pnpm verify:llm
+pnpm check:cmc
+pnpm explain:strategy
 ```
+
+`CMC_API_KEY` is required for live perception. `pnpm check:cmc` makes real calls
+through the same `CmcClient` used by the worker and reports key info, quotes,
+volume, trending, Fear & Greed, contract resolution, and x402 reachability.
+
+Qwen is optional. Set `LLM_PROVIDER=qwen` plus `QWEN_API_KEY`; role routing uses
+stronger models for strategy compilation, cheap models for frequent
+classification/summaries, and a mid-tier model for post-trade reflection and the
+DoraHacks explanation. With no LLM key, trading remains deterministic and
+`pnpm explain:strategy` emits an extractive template from the available audit data.
 
 ## Configure Capital
 

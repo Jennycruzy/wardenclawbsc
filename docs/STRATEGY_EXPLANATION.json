@@ -1,0 +1,44 @@
+{
+  "source": "template",
+  "explanation": {
+    "thesis": "No audited strategy activity is available yet.",
+    "regimeBehaviour": "",
+    "entryLogic": "",
+    "riskControls": "No audited risk-control outcome is available yet.",
+    "notableTrades": [],
+    "resultSummary": "No audited trade result is available yet.",
+    "honestCaveats": "This draft is extractive: every claim is copied from the deterministic audit digest.\nNo completed notable trade is supported by the supplied records."
+  },
+  "digest": {
+    "generatedAt": "2026-06-15T18:55:12.560Z",
+    "legCount": 0,
+    "entryLegs": 0,
+    "exitLegs": 0,
+    "scoutLegs": 0,
+    "regimeCounts": {},
+    "weekStates": [],
+    "decisionCount": 0,
+    "executionCount": 0,
+    "knownMandateIds": [],
+    "notableTrades": [],
+    "basis": {
+      "thesis": [
+        "No audited strategy activity is available yet."
+      ],
+      "regimeBehaviour": [],
+      "entryLogic": [],
+      "riskControls": [
+        "No audited risk-control outcome is available yet."
+      ],
+      "resultSummary": [
+        "No audited trade result is available yet."
+      ],
+      "honestCaveats": [
+        "This draft is extractive: every claim is copied from the deterministic audit digest.",
+        "No completed notable trade is supported by the supplied records."
+      ]
+    },
+    "facts": [],
+    "empty": true
+  }
+}

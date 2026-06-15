@@ -71,3 +71,27 @@ export const postTradeReflectionSchema = z.object({
 });
 
 export type PostTradeReflection = z.infer<typeof postTradeReflectionSchema>;
+
+/**
+ * The DoraHacks strategy write-up, drafted strictly from the audit-trail digest.
+ * Every field is prose derived from supplied inputs; a field with no factual
+ * basis must stay empty (the drafter blanks unfounded fields and drops any
+ * notable trade whose mandateId is not in the digest).
+ */
+export const strategyExplanationSchema = z.object({
+  thesis: z.string(),
+  regimeBehaviour: z.string(),
+  entryLogic: z.string(),
+  riskControls: z.string(),
+  notableTrades: z.array(
+    z.object({
+      mandateId: z.string(),
+      why: z.string(),
+      outcome: z.string(),
+    }),
+  ),
+  resultSummary: z.string(),
+  honestCaveats: z.string(),
+});
+
+export type StrategyExplanation = z.infer<typeof strategyExplanationSchema>;
