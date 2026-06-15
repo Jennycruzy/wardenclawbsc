@@ -5,6 +5,7 @@ import {
   parseMandate,
   type BscScoreInputs,
   type CalibrationReport,
+  type SignalObservation,
 } from "@wardenclaw/core";
 import type { TwakPolicyConfig } from "@wardenclaw/twak-adapter";
 import { evaluateCandidate, buildBscMandate, type CandidateInput, type PipelineContext } from "../src/index.js";
@@ -235,5 +236,79 @@ describe("evaluateCandidate — governor + micro-scout", () => {
     );
     expect(r.approved).toBe(false);
     expect(r.rejectCode).toBe("REJECT_INELIGIBLE_CONTRACT");
+  });
+});
+
+describe("evaluateCandidate — entry-quality gates (WS5)", () => {
+  const catObs = (price: number, volume: number, rank: number | undefined): SignalObservation => ({
+    checkIso: "2026-06-22T00:00:00Z",
+    price,
+    volume24hUsd: volume,
+    change24hPct: 0,
+    trendingRank: rank,
+  });
+  const rsObs = (change: number, benchmark: number | undefined, volume: number): SignalObservation => ({
+    checkIso: "2026-06-22T00:00:00Z",
+    price: 1,
+    volume24hUsd: volume,
+    change24hPct: change,
+    benchmarkChange24hPct: benchmark,
+  });
+
+  it("rejects a catalyst on a stale trending rank (REJECT_TRENDING_STALE)", () => {
+    const r = evaluateCandidate(
+      candidate({ entryObservations: [catObs(1.0, 100, 10), catObs(1.05, 300, 9)] }),
+      ctx(),
+    );
+    expect(r.approved).toBe(false);
+    expect(r.rejectCode).toBe("REJECT_TRENDING_STALE");
+  });
+
+  it("approves a catalyst whose uncrowding checks all clear", () => {
+    // Climbing rank, expanding volume, post-spike continuation reclaiming the base high.
+    const obs = [
+      catObs(1.0, 100, 30),
+      catObs(1.2, 100, 25),
+      catObs(1.15, 100, 20),
+      catObs(1.16, 100, 15),
+      catObs(1.25, 300, 10),
+    ];
+    const r = evaluateCandidate(candidate({ entryObservations: obs }), ctx());
+    expect(r.approved).toBe(true);
+    expect(r.reasons.some((s) => s.startsWith("catalyst entry:"))).toBe(true);
+  });
+
+  it("rejects rs_continuation without two confirmed outperformance checks", () => {
+    const r = evaluateCandidate(
+      candidate({ signalFamily: "rs_continuation", entryObservations: [rsObs(5, 2, 100), rsObs(3, 2.5, 150)] }),
+      ctx(),
+    );
+    expect(r.approved).toBe(false);
+    expect(r.rejectCode).toBe("REJECT_RS_NOT_CONFIRMED");
+  });
+
+  it("approves rs_continuation on two outperformance checks with rising volume", () => {
+    const r = evaluateCandidate(
+      candidate({ signalFamily: "rs_continuation", entryObservations: [rsObs(5, 2, 100), rsObs(6, 2.5, 150)] }),
+      ctx(),
+    );
+    expect(r.approved).toBe(true);
+    expect(r.signalFamily).toBe("rs_continuation");
+    expect(r.reasons.some((s) => s.startsWith("rs continuation:"))).toBe(true);
+  });
+
+  it("ignores entry gates for a Micro-Scout even when observations are stale", () => {
+    const r = evaluateCandidate(
+      candidate({
+        symbol: "USDC",
+        tokenInAddress: USDT,
+        tokenOutAddress: USDC,
+        isMicroScout: true,
+        entryObservations: [catObs(1.0, 100, 10), catObs(1.05, 300, 9)],
+      }),
+      ctx(),
+    );
+    expect(r.approved).toBe(true);
+    expect(r.signalFamily).toBe("scout");
   });
 });

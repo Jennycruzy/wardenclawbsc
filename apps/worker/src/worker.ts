@@ -29,13 +29,26 @@ import {
   evaluateWatchTick,
   serializeOpenPositions,
   parseOpenPositions,
+  appendObservation,
+  recentObservations,
+  serializeSignalHistory,
+  parseSignalHistory,
+  type BscScoreInputs,
   type CalibrationReport,
   type PendingMandate,
   type Holding,
   type OpenPosition,
   type TrailingStopConfig,
+  type TokenHistory,
+  type SignalObservation,
 } from "@wardenclaw/core";
-import { CmcClient, CmcX402Client, buildMomentumInputs } from "@wardenclaw/cmc-adapter";
+import {
+  CmcClient,
+  CmcX402Client,
+  buildMomentumInputs,
+  buildCatalystInputs,
+  buildRsContinuationInputs,
+} from "@wardenclaw/cmc-adapter";
 import {
   loadEligibleTokens,
   LiveBscReader,
@@ -128,6 +141,22 @@ function saveOpenPositions(positions: OpenPosition[]): void {
   writeFileSync(POSITIONS_FILE, serializeOpenPositions(positions), "utf8");
 }
 
+const SIGNAL_HISTORY_FILE = join(RUNTIME_DIR, "signalHistory.json");
+/** Recent observations passed to the entry gates (rolling window per token). */
+const ENTRY_WINDOW = 8;
+
+/** Restore per-token signal history so entry gates see change across restarts. */
+function loadSignalHistory(): Map<string, TokenHistory> {
+  if (!existsSync(SIGNAL_HISTORY_FILE)) return new Map();
+  const list = parseSignalHistory(readFileSync(SIGNAL_HISTORY_FILE, "utf8")); // throws loud on corruption
+  return new Map(list.map((h) => [h.symbol, h]));
+}
+
+function saveSignalHistory(history: Map<string, TokenHistory>): void {
+  mkdirSync(RUNTIME_DIR, { recursive: true });
+  writeFileSync(SIGNAL_HISTORY_FILE, serializeSignalHistory([...history.values()]), "utf8");
+}
+
 /** Heartbeat for the fast watch loop — surfaced on /bsc/ops. */
 function writeWatchHeartbeat(state: { watching: boolean; openPositions: number; lastError?: string }): void {
   mkdirSync(RUNTIME_DIR, { recursive: true });
@@ -209,6 +238,10 @@ async function main(): Promise<void> {
       timestamp: new Date().toISOString(),
     });
   }
+
+  // Restore the per-token signal history so the entry-quality gates (catalyst
+  // uncrowding, RS continuation) see change across cycles and restarts.
+  const signalHistory = loadSignalHistory();
 
   // Restore open positions (with live HWM/stop) so the trail resumes exactly.
   const openPositions = loadOpenPositions();
@@ -453,7 +486,15 @@ async function main(): Promise<void> {
 
     try {
       const symbols = STARTER_MAJORS.map((t) => t.symbol).slice(0, 6);
-      const [quotes, fg, bnb] = await Promise.all([cmc.getQuotes(symbols), cmc.getFearGreed(), cmc.getQuotes(["BNB"])]);
+      const [quotes, fg, bnb, trending] = await Promise.all([
+        cmc.getQuotes(symbols),
+        cmc.getFearGreed(),
+        cmc.getQuotes(["BNB"]),
+        cmc.getTrending(20).catch((err) => {
+          console.warn(`[worker] trending fetch failed (catalyst candidates skipped this cycle): ${(err as Error).message}`);
+          return null;
+        }),
+      ]);
       const bnbChange = bnb.data[0]?.percentChange24h ?? 0;
       const bnbPrice = bnb.data[0]?.priceUsd ?? 0;
 
@@ -532,7 +573,120 @@ async function main(): Promise<void> {
         calibrationStale: mode === "dry",
       };
 
-      // Evaluate every candidate against REAL pool reserves + a real shadow-fill.
+      // Trending → catalyst candidates. Keep only eligible trending tokens and, when
+      // a trending token is not already among the majors, fetch its quote so we have
+      // real price/volume for it.
+      const trendingRankBySymbol = new Map<string, number>();
+      for (const t of trending?.data ?? []) {
+        if (loaded.tokens.some((tok) => tok.symbol === t.symbol)) trendingRankBySymbol.set(t.symbol, t.rank);
+      }
+      const majorSymbols = new Set(quotes.data.map((q) => q.symbol));
+      const extraTrendingSymbols = [...trendingRankBySymbol.keys()].filter((s) => !majorSymbols.has(s));
+      let trendingQuotes: typeof quotes.data = [];
+      if (extraTrendingSymbols.length > 0) {
+        try {
+          trendingQuotes = (await cmc.getQuotes(extraTrendingSymbols)).data;
+        } catch (err) {
+          console.warn(`[worker] trending quotes fetch failed: ${(err as Error).message}`);
+        }
+      }
+      const allQuotes = [...quotes.data, ...trendingQuotes];
+
+      // Record one observation per token this cycle (deduped by CMC timestamp so we
+      // never fabricate repeated points), then persist for restart-safe entry gates.
+      for (const q of allQuotes) {
+        const prior = signalHistory.get(q.symbol) ?? { symbol: q.symbol, observations: [] };
+        if (prior.observations[prior.observations.length - 1]?.checkIso === q.lastUpdated) continue;
+        const obs: SignalObservation = {
+          checkIso: q.lastUpdated,
+          price: q.priceUsd,
+          volume24hUsd: q.volume24hUsd,
+          change24hPct: q.percentChange24h,
+          benchmarkChange24hPct: bnbChange,
+          trendingRank: trendingRankBySymbol.get(q.symbol),
+        };
+        signalHistory.set(q.symbol, appendObservation(prior, obs));
+      }
+      saveSignalHistory(signalHistory);
+
+      // One pool lookup per token per cycle (reserves + a real shadow-fill probe),
+      // cached so a token appearing in several families is fetched only once.
+      type Pool = { reserveIn: number; reserveOut: number; shadow: { expectedOut: number; simulatedOut: number } };
+      const poolCache = new Map<string, Pool | null>();
+      const resolvePool = async (token: (typeof loaded.tokens)[number]): Promise<Pool | null> => {
+        const key = token.bscContractAddress.toLowerCase();
+        if (poolCache.has(key)) return poolCache.get(key)!;
+        try {
+          const reserves = await reader.getReserves(usdt.bscContractAddress, token.bscContractAddress, usdt.decimals, token.decimals);
+          // Shadow-fill: two on-chain quotes at intended size; deviation flags MEV/thin liquidity.
+          const probe = Math.min(config.startingCapitalUsd, 15);
+          const q1 = await reader.getAmountOut(usdt.bscContractAddress, token.bscContractAddress, probe, usdt.decimals, token.decimals);
+          const q2 = await reader.getAmountOut(usdt.bscContractAddress, token.bscContractAddress, probe, usdt.decimals, token.decimals);
+          const pool: Pool = { reserveIn: reserves.reserveIn, reserveOut: reserves.reserveOut, shadow: { expectedOut: q1.amountOut, simulatedOut: q2.amountOut } };
+          poolCache.set(key, pool);
+          return pool;
+        } catch (err) {
+          if (err instanceof NoPoolError) {
+            console.log(`[worker] ${token.symbol}: no direct USDT pool — skipped`);
+            poolCache.set(key, null);
+            return null;
+          }
+          throw err;
+        }
+      };
+
+      // Candidate specs across the three families: momentum on every major;
+      // rs_continuation on majors outperforming the benchmark; catalyst on eligible
+      // trending tokens. Catalyst + rs_continuation carry recent history so their
+      // deterministic entry-quality gates fire (the LLM touches none of this).
+      interface Spec {
+        quote: (typeof allQuotes)[number];
+        token: (typeof loaded.tokens)[number];
+        family: "momentum" | "catalyst" | "rs_continuation";
+        inputs: BscScoreInputs;
+        tools: string[];
+        entryObservations?: SignalObservation[];
+      }
+      const specs: Spec[] = [];
+      for (const quote of quotes.data) {
+        const token = loaded.tokens.find((t) => t.symbol === quote.symbol);
+        if (!token) continue;
+        const momentum = buildMomentumInputs(quote, bnbChange, fg.data, 0.7);
+        specs.push({ quote, token, family: "momentum", inputs: momentum.inputs, tools: momentum.toolsUsed });
+        if (quote.percentChange24h - bnbChange > 0) {
+          const rs = buildRsContinuationInputs(quote, bnbChange, fg.data, 0.7);
+          specs.push({
+            quote,
+            token,
+            family: "rs_continuation",
+            inputs: rs.inputs,
+            tools: rs.toolsUsed,
+            entryObservations: recentObservations(signalHistory.get(quote.symbol)!, ENTRY_WINDOW),
+          });
+        }
+      }
+      for (const quote of allQuotes) {
+        const rank = trendingRankBySymbol.get(quote.symbol);
+        if (rank === undefined) continue;
+        const token = loaded.tokens.find((t) => t.symbol === quote.symbol);
+        if (!token) continue;
+        const catalyst = buildCatalystInputs(
+          quote,
+          { symbol: quote.symbol, cmcId: token.cmcId ?? 0, rank, percentChange24h: quote.percentChange24h },
+          fg.data,
+          0.7,
+        );
+        specs.push({
+          quote,
+          token,
+          family: "catalyst",
+          inputs: catalyst.inputs,
+          tools: catalyst.toolsUsed,
+          entryObservations: recentObservations(signalHistory.get(quote.symbol)!, ENTRY_WINDOW),
+        });
+      }
+
+      // Evaluate every spec against REAL pool reserves + a real shadow-fill.
       const evaluated: Array<{
         result: ReturnType<typeof evaluateCandidate>;
         token: (typeof loaded.tokens)[number];
@@ -541,56 +695,33 @@ async function main(): Promise<void> {
         price: number;
         atrPct: number;
       }> = [];
-      for (const quote of quotes.data) {
-        const token = loaded.tokens.find((t) => t.symbol === quote.symbol);
-        if (!token) continue;
-        let reserves;
-        let shadow;
-        try {
-          reserves = await reader.getReserves(usdt.bscContractAddress, token.bscContractAddress, usdt.decimals, token.decimals);
-          // Shadow-fill: two on-chain quotes at intended size; deviation flags MEV/thin liquidity.
-          const probe = Math.min(config.startingCapitalUsd, 15);
-          const q1 = await reader.getAmountOut(usdt.bscContractAddress, token.bscContractAddress, probe, usdt.decimals, token.decimals);
-          const q2 = await reader.getAmountOut(usdt.bscContractAddress, token.bscContractAddress, probe, usdt.decimals, token.decimals);
-          shadow = { expectedOut: q1.amountOut, simulatedOut: q2.amountOut };
-        } catch (err) {
-          if (err instanceof NoPoolError) {
-            console.log(`[worker] ${quote.symbol}: no direct USDT pool — skipped`);
-            continue;
-          }
-          throw err;
-        }
-
-        const momentum = buildMomentumInputs(quote, bnbChange, fg.data, 0.7);
+      for (const spec of specs) {
+        const pool = await resolvePool(spec.token);
+        if (!pool) continue;
+        const atrPct = Math.max(0.02, Math.abs(spec.quote.percentChange24h) / 100);
         const result = evaluateCandidate(
           {
-            symbol: quote.symbol,
-            signalFamily: "momentum",
-            scoreInputs: momentum.inputs,
-            cmcToolsUsed: momentum.toolsUsed,
-            marketDataTimestamp: quote.lastUpdated,
+            symbol: spec.quote.symbol,
+            signalFamily: spec.family,
+            scoreInputs: spec.inputs,
+            cmcToolsUsed: spec.tools,
+            marketDataTimestamp: spec.quote.lastUpdated,
             tokenInAddress: usdt.bscContractAddress,
-            tokenOutAddress: token.bscContractAddress,
+            tokenOutAddress: spec.token.bscContractAddress,
             router: "pancakeswap",
             spender: PANCAKE_V2_ROUTER,
             to: PANCAKE_V2_ROUTER,
-            atrPct: Math.max(0.02, Math.abs(quote.percentChange24h) / 100),
-            reserveIn: reserves.reserveIn,
-            reserveOut: reserves.reserveOut,
+            atrPct,
+            reserveIn: pool.reserveIn,
+            reserveOut: pool.reserveOut,
             poolFeeBps: 25,
             gasPerLegUsd,
-            shadow,
+            shadow: pool.shadow,
+            entryObservations: spec.entryObservations,
           },
           ctx,
         );
-        evaluated.push({
-          result,
-          token,
-          tools: momentum.toolsUsed,
-          ts: quote.lastUpdated,
-          price: quote.priceUsd,
-          atrPct: Math.max(0.02, Math.abs(quote.percentChange24h) / 100),
-        });
+        evaluated.push({ result, token: spec.token, tools: spec.tools, ts: spec.quote.lastUpdated, price: spec.quote.priceUsd, atrPct });
       }
 
       // Rank approved candidates; the top one is the trade for this cycle.
@@ -612,7 +743,7 @@ async function main(): Promise<void> {
           marketDataTimestamp: e.ts,
           calibrationVersion: calibration.version,
           createdAt: new Date().toISOString(),
-          id: `${runId}-c${cycles}-${e.token.symbol}`,
+          id: `${runId}-c${cycles}-${e.result.signalFamily}-${e.token.symbol}`,
           x402Receipt: x402ReceiptId,
           x402Path: x402PathUsed,
         });

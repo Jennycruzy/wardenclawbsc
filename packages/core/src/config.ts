@@ -26,6 +26,15 @@ export interface RiskConfig {
   watchStalenessLimitSeconds: number;
   watchStalenessAction: "alert_only" | "reduce";
 
+  // Entry quality — catalyst uncrowding + RS continuation
+  trendingDeltaMin: number;
+  trendingTopN: number;
+  volumeExpansionMin: number;
+  spikeCooldownChecks: number;
+  maxRetracePct: number;
+  spikeMinPct: number;
+  rsOutperformMinBps: number;
+
   // Trade frequency (verified minimum: 1/day, 7/week)
   minTradesPerDay: number;
   targetTradesPerDay: number;
@@ -71,6 +80,14 @@ export const DEFAULT_RISK_CONFIG: RiskConfig = {
   positionWatchIntervalSeconds: 45,
   watchStalenessLimitSeconds: 180,
   watchStalenessAction: "alert_only",
+
+  trendingDeltaMin: 5,
+  trendingTopN: 30,
+  volumeExpansionMin: 1.5,
+  spikeCooldownChecks: 2,
+  maxRetracePct: 0.5,
+  spikeMinPct: 0.08,
+  rsOutperformMinBps: 200,
 
   minTradesPerDay: 1,
   targetTradesPerDay: 2,
@@ -153,6 +170,14 @@ export function loadRiskConfig(env: Record<string, string | undefined> = {}): Ri
     positionWatchIntervalSeconds: num("POSITION_WATCH_INTERVAL_SECONDS", d.positionWatchIntervalSeconds),
     watchStalenessLimitSeconds: num("WATCH_STALENESS_LIMIT_SECONDS", d.watchStalenessLimitSeconds),
     watchStalenessAction: oneOf("WATCH_STALENESS_ACTION", ["alert_only", "reduce"] as const, d.watchStalenessAction),
+
+    trendingDeltaMin: num("TRENDING_DELTA_MIN", d.trendingDeltaMin),
+    trendingTopN: num("TRENDING_TOP_N", d.trendingTopN),
+    volumeExpansionMin: num("VOLUME_EXPANSION_MIN", d.volumeExpansionMin),
+    spikeCooldownChecks: num("SPIKE_COOLDOWN_CHECKS", d.spikeCooldownChecks),
+    maxRetracePct: num("MAX_RETRACE_PCT", d.maxRetracePct),
+    spikeMinPct: num("SPIKE_MIN_PCT", d.spikeMinPct),
+    rsOutperformMinBps: num("RS_OUTPERFORM_MIN_BPS", d.rsOutperformMinBps),
 
     minTradesPerDay: num("MIN_TRADES_PER_DAY", d.minTradesPerDay),
     targetTradesPerDay: num("TARGET_TRADES_PER_DAY", d.targetTradesPerDay),

@@ -10,7 +10,7 @@
 import "dotenv/config";
 
 import { readFile, writeFile } from "node:fs/promises";
-import { buildCalibrationReport, type CalibrationSample } from "@wardenclaw/core";
+import { buildCalibrationReport, buildPerFamilyCalibration, type CalibrationSample } from "@wardenclaw/core";
 
 const SAMPLES_PATH = process.env.CALIBRATION_SAMPLES_PATH ?? "data/calibration/samples.json";
 const REPORT_PATH = process.env.CALIBRATION_REPORT_PATH ?? "data/calibration/report.json";
@@ -52,7 +52,26 @@ async function main(): Promise<void> {
       `  >=${b.minScore}: ${b.realizedMoveBps.toString().padStart(7)} bps | ${(b.hitRate * 100).toFixed(1)}% | ${b.realizedVsPredicted}`,
     );
   }
-  console.log("\n  Tune NET_EDGE_MIN_BPS so bands whose realized move is below friction do not trade.");
+
+  // Per-family calibration so NET_EDGE_MIN_BPS and the score→move mapping can be
+  // tuned per family (momentum vs catalyst vs rs_continuation), not globally.
+  const perFamily = buildPerFamilyCalibration(samples, SCORE_THRESHOLDS, {
+    version: `cal-${generatedAt.slice(0, 10)}`,
+    generatedAt,
+    historyDays: Number(process.env.CALIBRATION_HISTORY_DAYS ?? 30),
+  });
+  const perFamilyPath = (process.env.CALIBRATION_REPORT_PATH ?? "data/calibration/report.json").replace(/\.json$/, ".by-family.json");
+  await writeFile(perFamilyPath, JSON.stringify(perFamily, null, 2) + "\n", "utf8");
+  console.log(`\n✓ Per-family calibration written to ${perFamilyPath}`);
+  for (const fam of perFamily) {
+    console.log(`\n  [${fam.family}] (${fam.sampleCount} samples)`);
+    for (const b of fam.report.bands) {
+      console.log(
+        `    >=${b.minScore}: ${b.realizedMoveBps.toString().padStart(7)} bps | ${(b.hitRate * 100).toFixed(1)}% hit`,
+      );
+    }
+  }
+  console.log("\n  Tune NET_EDGE_MIN_BPS per family so bands whose realized move is below friction do not trade.");
 }
 
 main().catch((err) => {

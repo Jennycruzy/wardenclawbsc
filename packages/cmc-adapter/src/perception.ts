@@ -89,6 +89,35 @@ export function buildCatalystInputs(
   return { inputs, signalFamily: "catalyst", toolsUsed: ["quotes", "trending", "fear_greed"], trendingRank: trending.rank };
 }
 
+export interface RsContinuationInputsResult {
+  inputs: BscScoreInputs;
+  signalFamily: "rs_continuation";
+  toolsUsed: string[];
+}
+
+/**
+ * RS-continuation score inputs: a token showing sustained relative strength vs the
+ * benchmark, BEFORE it is crowded onto the trending list. Relative strength is the
+ * dominant component. `bnbChange24h` is the benchmark reference only — never a hold.
+ */
+export function buildRsContinuationInputs(
+  quote: CmcQuote,
+  bnbChange24h: number,
+  fearGreed: FearGreed,
+  walletRiskState: number,
+): RsContinuationInputsResult {
+  const inputs: BscScoreInputs = {
+    momentum: normMomentum(quote.percentChange24h),
+    liquiditySafety: liquiditySafety(quote.volume24hUsd),
+    // Tighter saturation so genuine outperformance reads strongly.
+    relativeStrengthVsBnb: normMomentum(quote.percentChange24h - bnbChange24h, 8),
+    sentiment: clamp01(fearGreed.value / 100),
+    volatilitySafety: volatilitySafety(quote.percentChange1h),
+    walletRiskState: clamp01(walletRiskState),
+  };
+  return { inputs, signalFamily: "rs_continuation", toolsUsed: ["quotes", "fear_greed"] };
+}
+
 /** Collect attribution across a set of CMC signals used for one decision. */
 export function toolsFromSignals(...signals: Array<CmcSignal<unknown>>): string[] {
   return [...new Set(signals.map((s) => s.tool))];

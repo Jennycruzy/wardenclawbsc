@@ -16,7 +16,7 @@ export type MandateAction =
   | "hold"
   | "pause";
 
-export type SignalFamily = "momentum" | "catalyst" | "scout" | "safety";
+export type SignalFamily = "momentum" | "catalyst" | "rs_continuation" | "scout" | "safety";
 export type RiskClass = "conservative" | "balanced" | "aggressive" | "blocked";
 export type ExecutionStatus =
   | "not_submitted"
@@ -44,6 +44,11 @@ export const RejectCode = {
   INFINITE_APPROVAL: "REJECT_INFINITE_APPROVAL",
   HELD_NATIVE_OR_WBNB: "REJECT_HELD_NATIVE_OR_WBNB",
   DUST_TRADE: "REJECT_DUST_TRADE",
+  FIRST_SPIKE: "REJECT_FIRST_SPIKE",
+  TRENDING_STALE: "REJECT_TRENDING_STALE",
+  NO_VOLUME_EXPANSION: "REJECT_NO_VOLUME_EXPANSION",
+  RS_NOT_CONFIRMED: "REJECT_RS_NOT_CONFIRMED",
+  REGIME_RED: "REJECT_REGIME_RED",
   STALE_DATA: "REJECT_STALE_DATA",
   STALE_CALIBRATION: "REJECT_STALE_CALIBRATION",
   DRAWDOWN_BUDGET: "REJECT_DRAWDOWN_BUDGET",

@@ -60,6 +60,8 @@ export interface CalibrationSample {
   realizedMoveBps: number;
   /** Whether the trade direction was correct (a win). */
   win: boolean;
+  /** Which signal family produced the sample (for per-family calibration). */
+  family?: string;
 }
 
 /**
@@ -100,6 +102,42 @@ export function buildCalibrationReport(
     historyDays: meta.historyDays,
     bands,
   };
+}
+
+export interface PerFamilyCalibration {
+  family: string;
+  sampleCount: number;
+  report: CalibrationReport;
+}
+
+/**
+ * Build a calibration report per signal family so NET_EDGE_MIN_BPS and the
+ * score→move mapping can be tuned per family (momentum vs catalyst vs
+ * rs_continuation) rather than globally. Samples without a family are grouped
+ * under "unlabeled". Never fabricates samples.
+ */
+export function buildPerFamilyCalibration(
+  samples: CalibrationSample[],
+  scoreThresholds: number[],
+  meta: { version: string; generatedAt: string; historyDays: number },
+): PerFamilyCalibration[] {
+  const byFamily = new Map<string, CalibrationSample[]>();
+  for (const s of samples) {
+    const fam = s.family ?? "unlabeled";
+    const list = byFamily.get(fam) ?? [];
+    list.push(s);
+    byFamily.set(fam, list);
+  }
+  return [...byFamily.entries()]
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([family, famSamples]) => ({
+      family,
+      sampleCount: famSamples.length,
+      report: buildCalibrationReport(famSamples, scoreThresholds, {
+        ...meta,
+        version: `${meta.version}-${family}`,
+      }),
+    }));
 }
 
 /** A calibration is stale when older than the configured max age. */
