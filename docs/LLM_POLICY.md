@@ -69,9 +69,11 @@ thin subclass of the OpenAI client with Qwen defaults:
 
 ## Per-role model routing (`llm/roles.ts`)
 
-Each role reads its own `*_MODEL` env var if set, else falls back to the active
-provider's default model for that role's tier. Cheap/fast models serve the
-high-frequency roles; only compilation/explanation reach for a stronger model.
+Each role reads its own `*_MODEL` env var if set. Otherwise an explicit provider
+model (`QWEN_MODEL`, `OPENAI_MODEL`, and equivalents) is preserved, which keeps
+custom OpenAI-compatible gateways working. If neither is set, routing falls back
+to the active provider's tier default. Cheap/fast models serve the high-frequency
+roles; only compilation/explanation reach for a stronger model.
 
 | Role | Job | Tier | `*_MODEL` env | Qwen default | Touches money? |
 |---|---|---|---|---|---|

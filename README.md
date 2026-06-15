@@ -25,7 +25,7 @@ The win-first upgrade, operations pass, and final self-audit are implemented on
 
 - `pnpm typecheck`: green
 - `pnpm lint`: green
-- `pnpm test`: **316 tests passed**
+- `pnpm test`: **317 tests passed**
 - Live BSC reserve and quote read: passed
 - Production Next.js build: green
 - VPS web and API: deployed from `main`

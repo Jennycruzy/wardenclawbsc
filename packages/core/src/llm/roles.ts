@@ -92,7 +92,22 @@ export interface RoleResolution {
   tier: ModelTier;
   /** Null only in disabled mode (no provider/model). */
   model: string | null;
-  source: "role-override" | "provider-default" | "disabled";
+  source: "role-override" | "provider-model" | "provider-default" | "disabled";
+}
+
+function providerModelOverride(
+  provider: Exclude<LlmProviderName, "disabled">,
+  env: RoleRouterEnv,
+): string | undefined {
+  const value =
+    provider === "qwen"
+      ? env.QWEN_MODEL
+      : provider === "openai"
+        ? env.OPENAI_MODEL
+        : provider === "anthropic"
+          ? env.ANTHROPIC_MODEL
+          : env.LOCAL_MODEL;
+  return value?.trim() || undefined;
 }
 
 /**
@@ -111,6 +126,16 @@ export function resolveRoleModel(
   const override = (env[spec.envVar as keyof RoleRouterEnv] as string | undefined)?.trim();
   if (override) {
     return { role, provider: selection.name, tier: spec.tier, model: override, source: "role-override" };
+  }
+  const configuredModel = providerModelOverride(selection.name, env);
+  if (configuredModel) {
+    return {
+      role,
+      provider: selection.name,
+      tier: spec.tier,
+      model: configuredModel,
+      source: "provider-model",
+    };
   }
   const model = TIER_DEFAULTS[selection.name as Exclude<LlmProviderName, "disabled">][spec.tier];
   return { role, provider: selection.name, tier: spec.tier, model, source: "provider-default" };

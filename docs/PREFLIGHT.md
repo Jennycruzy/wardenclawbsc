@@ -36,7 +36,17 @@ Live competition mode refuses to start unless the gate is passed (override with
 
 ### CMC key end-to-end wiring (`pnpm check:cmc`)
 
-✗ **FAIL** — CMC_API_KEY missing (checked 2026-06-15T18:49:11.022Z). The agent is blind without it.
+✅ **PASS** — checked 2026-06-15T19:08:36.565Z against https://pro-api.coinmarketcap.com.
+
+| Surface | Result | Latency | Detail |
+|---|---|---|---|
+| key_info | OK | 122ms | 2 key-info fields parsed |
+| quotes | OK | 40ms | BNB $622.73 |
+| volume | OK | 40ms | CAKE 24h volume $24717792 |
+| trending | OK | 76ms | 5 trending tokens |
+| fear_greed | OK | 59ms | 26 (Fear) |
+| symbol_resolution | OK | 37ms | resolved CAKE info payload |
+| x402 | reachable=true | — | 402 challenge received (wired, no spend) |
 
 <!-- CMC_WIRING:END -->
 

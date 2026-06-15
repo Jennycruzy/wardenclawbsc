@@ -50,6 +50,18 @@ describe("per-role model routing", () => {
     expect(resolveRoleModel("AUDIT_SUMMARY", env).model).toBe("gpt-4o-mini");
   });
 
+  it("preserves an explicit provider model for an OpenAI-compatible gateway", () => {
+    const env: RoleRouterEnv = {
+      LLM_PROVIDER: "openai",
+      OPENAI_API_KEY: "o",
+      OPENAI_BASE_URL: "https://gateway.example/v1",
+      OPENAI_MODEL: "qwen3.6-plus",
+    };
+    const resolved = resolveRoleModel("STRATEGY_EXPLANATION", env);
+    expect(resolved.model).toBe("qwen3.6-plus");
+    expect(resolved.source).toBe("provider-model");
+  });
+
   it("reports disabled for every role with no keys", () => {
     for (const r of ALL_ROLES) {
       const res = resolveRoleModel(r, {});

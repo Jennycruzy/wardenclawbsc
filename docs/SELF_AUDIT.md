@@ -108,5 +108,5 @@ pnpm typecheck && pnpm lint && pnpm test
 pnpm --filter @wardenclaw/web build
 ```
 
-Result: typecheck green, lint green, **316 tests passed**, including the live
+Result: typecheck green, lint green, **317 tests passed**, including the live
 BSC-mainnet reserve/quote read, and the production Next.js build green.
