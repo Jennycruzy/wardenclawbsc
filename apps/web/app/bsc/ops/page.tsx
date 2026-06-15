@@ -1,6 +1,6 @@
 import { BscShell } from "@/components/bscShell";
 import { Card, SectionTitle, Badge, Dot, KeyValue } from "@/components/ui";
-import { readBscEnv, readWatchHeartbeat, readWeekBudget, readRegime } from "@/lib/data";
+import { readBscEnv, readWatchHeartbeat, readWeekBudget, readRegime, readWalletCost } from "@/lib/data";
 
 export const dynamic = "force-dynamic";
 
@@ -22,6 +22,7 @@ export default function BscOps() {
   const watch = readWatchHeartbeat();
   const week = readWeekBudget();
   const regime = readRegime();
+  const walletCost = readWalletCost();
   const watchStaleMs = watch ? Date.now() - new Date(watch.lastBeatIso).getTime() : null;
   const watchHealthy = watchStaleMs !== null && watchStaleMs < 120_000;
 
@@ -132,6 +133,33 @@ export default function BscOps() {
             <p className="py-3 text-xs text-ink-faint">
               No week-budget snapshot yet. The worker writes it each decision cycle; the size multiplier is bounded by{" "}
               <code className="font-mono">MAX_POSITION_PCT</code> and the volatility stop, so PRESS never breaches the caps.
+            </p>
+          )}
+        </Card>
+
+        <Card>
+          <SectionTitle title="Measured TWAK round-trip cost" subtitle="The real $40 cost — measured from fills, never hardcoded — driving the wallet floor and dust gate" />
+          {walletCost ? (
+            <div className="space-y-1">
+              <div className="flex items-center justify-between border-b border-line/50 py-2.5">
+                <div className="flex items-center gap-2.5">
+                  <Dot tone={walletCost.measured ? "pos" : "neutral"} />
+                  <span className="text-sm">Real round-trip</span>
+                </div>
+                <Badge tone={walletCost.measured ? "pos" : "neutral"}>
+                  {walletCost.rollingBps.toFixed(0)} bps · {walletCost.measured ? `${walletCost.sampleCount} fill(s)` : "bootstrap"}
+                </Badge>
+              </div>
+              <KeyValue k="Wallet floor" v={`${walletCost.walletFloorBps.toFixed(0)} bps (move must clear)`} />
+              <KeyValue k="Dust ceiling" v={`${walletCost.dustCeilingBps} bps`} />
+              {!walletCost.measured ? (
+                <KeyValue k="Modeled bootstrap" v={`${walletCost.bootstrapBps.toFixed(0)} bps until first real fill`} />
+              ) : null}
+            </div>
+          ) : (
+            <p className="py-3 text-xs text-ink-faint">
+              No cost snapshot yet. The worker measures each completed round-trip (entry notional vs actual exit
+              proceeds, isolated from the price move) and rolls it into the wallet floor and dust gate.
             </p>
           )}
         </Card>

@@ -198,6 +198,34 @@ export function readRegime(): RegimeSnapshot | null {
   }
 }
 
+// ---- Measured real round-trip cost / Wallet Ledger (WS8) ------------------
+
+export interface WalletCostSnapshot {
+  lastBeatIso: string;
+  /** Current rolling real round-trip cost (bps): measured mean, or bootstrap. */
+  rollingBps: number;
+  /** Number of real fills measured so far. */
+  sampleCount: number;
+  /** Modeled bootstrap used until the first real fill. */
+  bootstrapBps: number;
+  /** Whether `rollingBps` is from real fills (true) or still the bootstrap. */
+  measured: boolean;
+  /** Notional too small if the real round-trip exceeds this (dust gate). */
+  dustCeilingBps: number;
+  /** The wallet-floor threshold the expected move must clear. */
+  walletFloorBps: number;
+}
+
+export function readWalletCost(): WalletCostSnapshot | null {
+  const f = join(RUNTIME_DIR, "wallet-cost.snapshot.json");
+  if (!existsSync(f)) return null;
+  try {
+    return JSON.parse(readFileSync(f, "utf8")) as WalletCostSnapshot;
+  } catch {
+    return null;
+  }
+}
+
 // ---- Environment / mode readouts -----------------------------------------
 
 export interface BscEnv {

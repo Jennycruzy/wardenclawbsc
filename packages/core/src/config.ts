@@ -72,6 +72,7 @@ export interface RiskConfig {
   frictionBudgetBps: number;
   scoringSimCostBps: number; // per trade leg — conservative default until confirmed
   walletFloorFraction: number; // expected move must exceed this × measured real round-trip
+  dustRoundTripCeilingBps: number; // measured real round-trip above this = dust (notional too small vs fixed cost)
   maxSlippageBps: number;
   shadowFillToleranceBps: number;
   kellyFraction: number;
@@ -140,6 +141,7 @@ export const DEFAULT_RISK_CONFIG: RiskConfig = {
   frictionBudgetBps: 120,
   scoringSimCostBps: 10,
   walletFloorFraction: 0.75,
+  dustRoundTripCeilingBps: 350,
   maxSlippageBps: 50,
   shadowFillToleranceBps: 40,
   kellyFraction: 0.25,
@@ -247,6 +249,7 @@ export function loadRiskConfig(env: Record<string, string | undefined> = {}): Ri
     frictionBudgetBps: num("FRICTION_BUDGET_BPS", d.frictionBudgetBps),
     scoringSimCostBps: num("SCORING_SIM_COST_BPS", d.scoringSimCostBps),
     walletFloorFraction: num("WALLET_FLOOR_FRACTION", d.walletFloorFraction),
+    dustRoundTripCeilingBps: num("DUST_ROUND_TRIP_CEILING_BPS", d.dustRoundTripCeilingBps),
     maxSlippageBps: num("MAX_SLIPPAGE_BPS", d.maxSlippageBps),
     shadowFillToleranceBps: num("SHADOW_FILL_TOLERANCE_BPS", d.shadowFillToleranceBps),
     kellyFraction: num("KELLY_FRACTION", d.kellyFraction),

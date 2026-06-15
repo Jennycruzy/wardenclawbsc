@@ -47,8 +47,16 @@ import {
   serializeRegimeState,
   parseRegimeState,
   ExitReason,
+  initRollingCost,
+  recordRoundTrip,
+  measureRoundTripBps,
+  realRoundTripBps as rollingRealCostBps,
+  serializeRollingCost,
+  parseRollingCost,
+  computeFriction,
   type RegimeState,
   type RegimeConfig,
+  type RollingCostState,
   type BscScoreInputs,
   type CalibrationReport,
   type PendingMandate,
@@ -205,6 +213,40 @@ function loadRegimeState(): RegimeState {
 function saveRegimeState(state: RegimeState): void {
   mkdirSync(RUNTIME_DIR, { recursive: true });
   writeFileSync(REGIME_FILE, serializeRegimeState(state), "utf8");
+}
+
+const WALLET_COST_FILE = join(RUNTIME_DIR, "wallet-cost.json");
+
+/** Restore the rolling real round-trip cost (Wallet Ledger) so measured fills
+ *  survive restarts. Bootstraps from a modeled real-friction estimate at size
+ *  until the first real fill is measured. */
+function loadWalletCost(bootstrapBps: number): RollingCostState {
+  if (existsSync(WALLET_COST_FILE)) {
+    return parseRollingCost(readFileSync(WALLET_COST_FILE, "utf8")); // throws loud on corruption
+  }
+  return initRollingCost(bootstrapBps);
+}
+
+function saveWalletCost(state: RollingCostState): void {
+  mkdirSync(RUNTIME_DIR, { recursive: true });
+  writeFileSync(WALLET_COST_FILE, serializeRollingCost(state), "utf8");
+}
+
+/** WS8 wallet-cost snapshot — surfaced on /bsc/ops + /bsc/proof. */
+function writeWalletCost(state: {
+  rollingBps: number;
+  sampleCount: number;
+  bootstrapBps: number;
+  measured: boolean;
+  dustCeilingBps: number;
+  walletFloorBps: number;
+}): void {
+  mkdirSync(RUNTIME_DIR, { recursive: true });
+  writeFileSync(
+    join(RUNTIME_DIR, "wallet-cost.snapshot.json"),
+    JSON.stringify({ lastBeatIso: new Date().toISOString(), ...state }),
+    "utf8",
+  );
 }
 
 /** Heartbeat for the fast watch loop — surfaced on /bsc/ops. */
@@ -367,6 +409,22 @@ async function main(): Promise<void> {
   };
   let regimeState = loadRegimeState();
   let regimeRed = regimeState.current === "RED";
+
+  // WS8 Wallet Ledger: the MEASURED real round-trip cost. Bootstraps from a modeled
+  // real-friction estimate at a representative size and is replaced by the rolling
+  // mean of realized fills as they land. Feeds the wallet floor and the dust gate.
+  const walletBootstrapBps = computeFriction({
+    notionalUsd: Math.max(5, config.startingCapitalUsd * 0.25),
+    gasInUsd: 0.02,
+    gasOutUsd: 0.02,
+    expectedSlippageBps: 10,
+    lpFeeBps: 25,
+    scoringSimCostBps: 0,
+  }).realFrictionBps;
+  let walletCost = loadWalletCost(walletBootstrapBps);
+  saveWalletCost(walletCost);
+  // Last observed gas-per-leg, shared with the watch loop for round-trip measurement.
+  let lastGasPerLegUsd = 0.02;
 
   // Restore open positions (with live HWM/stop) so the trail resumes exactly.
   const openPositions = loadOpenPositions();
@@ -562,6 +620,26 @@ async function main(): Promise<void> {
             continue; // keep watching — do not drop a position we failed to exit
           }
           console.log(`[worker] ${tick.exit.reason} ${pos.symbol} @ ${tick.exit.currentPrice} (gain ${tick.exit.gainPct.toFixed(2)}%)`);
+
+          // WS8: measure the REAL round-trip cost from this completed fill (entry
+          // notional vs actual exit proceeds, isolated from the price move) and fold
+          // it into the rolling Wallet Ledger estimate that drives the wallet floor +
+          // dust gate. Requires a real exit fill with a realized output.
+          if (outcome?.receipt && typeof outcome.receipt.realizedOut === "number" && tick.exit.entryPrice > 0) {
+            const measuredBps = measureRoundTripBps({
+              entryNotionalUsd: pos.notionalUsd,
+              exitProceedsUsd: outcome.receipt.realizedOut,
+              entryPrice: tick.exit.entryPrice,
+              exitPrice: tick.exit.currentPrice,
+              entryGasUsd: lastGasPerLegUsd,
+              exitGasUsd: lastGasPerLegUsd,
+            });
+            walletCost = recordRoundTrip(walletCost, measuredBps);
+            saveWalletCost(walletCost);
+            console.log(
+              `[worker] measured real round-trip on ${pos.symbol}: ${measuredBps.toFixed(0)}bps (rolling ${rollingRealCostBps(walletCost).toFixed(0)}bps over ${walletCost.samples.length} fill(s))`,
+            );
+          }
         } catch (err) {
           await sendAlert(process.env.ALERT_WEBHOOK_URL, {
             reason: "execution_failure",
@@ -627,6 +705,7 @@ async function main(): Promise<void> {
 
       // Real gas cost per leg from on-chain gas price × BNB price.
       const gasPerLegUsd = bnbPrice > 0 ? await reader.gasPerLegUsd(bnbPrice) : 0.02;
+      lastGasPerLegUsd = gasPerLegUsd; // share with the watch loop for round-trip measurement
 
       // x402-in-the-loop: pay for a CMC x402 request used in this decision cycle.
       // TWAK-first; viem only as a labeled fallback. Failure may block trades.
@@ -754,7 +833,22 @@ async function main(): Promise<void> {
         sizeMultiplier: weekBudget.sizeMultiplier,
         riskState: weekBudget.state,
         marketRegime: regimeState.current,
+        // Once real fills are measured, the wallet floor + dust gate use the MEASURED
+        // round-trip; until then ctx leaves it undefined so the pipeline falls back to
+        // the accurate per-candidate modeled friction at size.
+        realRoundTripBps: walletCost.samples.length > 0 ? rollingRealCostBps(walletCost) : undefined,
       };
+
+      // WS8 wallet-cost snapshot for the dashboards.
+      const walletRollingBps = walletCost.samples.length > 0 ? rollingRealCostBps(walletCost) : walletCost.bootstrapBps;
+      writeWalletCost({
+        rollingBps: walletRollingBps,
+        sampleCount: walletCost.samples.length,
+        bootstrapBps: walletCost.bootstrapBps,
+        measured: walletCost.samples.length > 0,
+        dustCeilingBps: config.dustRoundTripCeilingBps,
+        walletFloorBps: config.walletFloorFraction * walletRollingBps,
+      });
 
       // Trending → catalyst candidates. Keep only eligible trending tokens and, when
       // a trending token is not already among the majors, fetch its quote so we have
@@ -971,7 +1065,10 @@ async function main(): Promise<void> {
                 symbol: e.token.symbol,
                 tokenInAddress: usdt.bscContractAddress,
                 tokenOutAddress: e.token.bscContractAddress,
-                amountTokens: e.price > 0 ? e.result.economics.positionSizeUsd / e.price : 0,
+                // Prefer the actual filled token amount for an accurate exit + round-trip
+                // measurement; fall back to the size/price estimate when the receipt omits it.
+                amountTokens:
+                  outcome.receipt.realizedOut ?? (e.price > 0 ? e.result.economics.positionSizeUsd / e.price : 0),
                 notionalUsd: e.result.economics.positionSizeUsd,
                 openedAtIso: new Date().toISOString(),
                 trail,
