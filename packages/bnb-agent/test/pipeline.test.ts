@@ -239,6 +239,44 @@ describe("evaluateCandidate — governor + micro-scout", () => {
   });
 });
 
+describe("evaluateCandidate — week-schedule risk budget (WS6)", () => {
+  it("DEFEND shrinks position size below the HUNT baseline", () => {
+    const baseline = evaluateCandidate(candidate(), ctx());
+    const defend = evaluateCandidate(candidate(), ctx({ sizeMultiplier: 0.5, riskState: "DEFEND" }));
+    expect(defend.approved).toBe(true);
+    expect(defend.economics.positionSizeUsd).toBeLessThan(baseline.economics.positionSizeUsd);
+    expect(defend.riskState).toBe("DEFEND");
+    expect(defend.sizeMultiplier).toBe(0.5);
+    expect(defend.reasons.some((s) => s.includes("week budget DEFEND"))).toBe(true);
+  });
+
+  it("PRESS grows position size above the HUNT baseline", () => {
+    const baseline = evaluateCandidate(candidate(), ctx());
+    const press = evaluateCandidate(candidate(), ctx({ sizeMultiplier: 1.3, riskState: "PRESS" }));
+    expect(press.approved).toBe(true);
+    expect(press.economics.positionSizeUsd).toBeGreaterThan(baseline.economics.positionSizeUsd);
+    expect(press.riskState).toBe("PRESS");
+  });
+
+  it("a large PRESS multiplier is still bounded by the hard caps (never breaches them)", () => {
+    const press = evaluateCandidate(candidate(), ctx({ sizeMultiplier: 5, riskState: "PRESS" }));
+    expect(press.approved).toBe(true);
+    // maxPositionPct (70%) of deployable ($38) = $26.6; the volatility-stop size is
+    // even tighter here, so a 5× multiplier cannot push size past those caps.
+    expect(press.economics.positionSizeUsd).toBeLessThanOrEqual(26.6);
+  });
+
+  it("does not apply the week multiplier to a Micro-Scout", () => {
+    const scout = evaluateCandidate(
+      candidate({ symbol: "USDC", tokenInAddress: USDT, tokenOutAddress: USDC, isMicroScout: true }),
+      ctx({ sizeMultiplier: 0.5, riskState: "DEFEND" }),
+    );
+    expect(scout.approved).toBe(true);
+    expect(scout.economics.positionSizeUsd).toBe(DEFAULT_RISK_CONFIG.microScoutUsd);
+    expect(scout.sizeMultiplier).toBeUndefined();
+  });
+});
+
 describe("evaluateCandidate — entry-quality gates (WS5)", () => {
   const catObs = (price: number, volume: number, rank: number | undefined): SignalObservation => ({
     checkIso: "2026-06-22T00:00:00Z",

@@ -33,6 +33,15 @@ import {
   recentObservations,
   serializeSignalHistory,
   parseSignalHistory,
+  COMPETITION,
+  initWeekLedger,
+  recordWeekValue,
+  recordLeg,
+  deriveWeekBudgetState,
+  evaluateWeekBudget,
+  weekElapsedFraction,
+  serializeWeekLedger,
+  parseWeekLedger,
   type BscScoreInputs,
   type CalibrationReport,
   type PendingMandate,
@@ -41,6 +50,8 @@ import {
   type TrailingStopConfig,
   type TokenHistory,
   type SignalObservation,
+  type WeekLedger,
+  type WeekBudgetConfig,
 } from "@wardenclaw/core";
 import {
   CmcClient,
@@ -157,11 +168,48 @@ function saveSignalHistory(history: Map<string, TokenHistory>): void {
   writeFileSync(SIGNAL_HISTORY_FILE, serializeSignalHistory([...history.values()]), "utf8");
 }
 
+const WEEK_LEDGER_FILE = join(RUNTIME_DIR, "weekLedger.json");
+
+/** Restore (or freshly start) the week ledger so the HUNT/PRESS/DEFEND state
+ *  survives restarts. A persisted ledger from a previous competition week (its
+ *  weekStart no longer matches the current window) is re-initialized. */
+function loadWeekLedger(weekStartIso: string, startValueUsd: number): WeekLedger {
+  if (existsSync(WEEK_LEDGER_FILE)) {
+    const restored = parseWeekLedger(readFileSync(WEEK_LEDGER_FILE, "utf8")); // throws loud on corruption
+    if (restored.weekStartIso === weekStartIso) return restored;
+  }
+  return initWeekLedger(weekStartIso, startValueUsd);
+}
+
+function saveWeekLedger(ledger: WeekLedger): void {
+  mkdirSync(RUNTIME_DIR, { recursive: true });
+  writeFileSync(WEEK_LEDGER_FILE, serializeWeekLedger(ledger), "utf8");
+}
+
 /** Heartbeat for the fast watch loop — surfaced on /bsc/ops. */
 function writeWatchHeartbeat(state: { watching: boolean; openPositions: number; lastError?: string }): void {
   mkdirSync(RUNTIME_DIR, { recursive: true });
   writeFileSync(
     join(RUNTIME_DIR, "watch-heartbeat.json"),
+    JSON.stringify({ lastBeatIso: new Date().toISOString(), ...state }),
+    "utf8",
+  );
+}
+
+/** WS6 week-budget snapshot — surfaced on /bsc/ops (HUNT/PRESS/DEFEND). */
+function writeWeekBudget(state: {
+  riskState: string;
+  sizeMultiplier: number;
+  weekReturnPct: number;
+  weekElapsedPct: number;
+  legsUsed: number;
+  legsRemaining: number;
+  legsScarce: boolean;
+  reason: string;
+}): void {
+  mkdirSync(RUNTIME_DIR, { recursive: true });
+  writeFileSync(
+    join(RUNTIME_DIR, "week-budget.json"),
     JSON.stringify({ lastBeatIso: new Date().toISOString(), ...state }),
     "utf8",
   );
@@ -242,6 +290,27 @@ async function main(): Promise<void> {
   // Restore the per-token signal history so the entry-quality gates (catalyst
   // uncrowding, RS continuation) see change across cycles and restarts.
   const signalHistory = loadSignalHistory();
+
+  // WS6 week-schedule risk budget: a leg/return/drawdown ledger over the
+  // competition week, restored across restarts. Drives the HUNT/PRESS/DEFEND
+  // size multiplier each cycle. Re-initializes when a new week opens.
+  const weekStartIso = COMPETITION.tradingWindow.startUtc;
+  const weekEndIso = COMPETITION.tradingWindow.endUtc;
+  const weekLengthDays = Math.max(1, Math.round((Date.parse(weekEndIso) - Date.parse(weekStartIso)) / 86_400_000));
+  const weekBudgetCfg: WeekBudgetConfig = {
+    weeklyLegBudget: config.weeklyLegBudget,
+    pressThresholdPct: config.pressThresholdPct,
+    defendThresholdPct: config.defendThresholdPct,
+    lockInReturnPct: config.lockInReturnPct,
+    maxGiveBackPct: config.maxGiveBackPct,
+    pressSizeMultiplier: config.pressSizeMultiplier,
+    defendSizeMultiplier: config.defendSizeMultiplier,
+    lateWeekFraction: config.lateWeekFraction,
+    reservedLegsPerDay: config.minTradesPerDay,
+    weekLengthDays,
+  };
+  let weekLedger = loadWeekLedger(weekStartIso, config.startingCapitalUsd);
+  saveWeekLedger(weekLedger);
 
   // Restore open positions (with live HWM/stop) so the trail resumes exactly.
   const openPositions = loadOpenPositions();
@@ -557,6 +626,27 @@ async function main(): Promise<void> {
       // If x402 is required by config but unavailable or failed, block trades.
       const x402Blocks = x402Required && (x402Path === "none" || x402Failed);
 
+      // WS6: update the week ledger's peak with the current book value, then derive
+      // the HUNT/PRESS/DEFEND state and the size multiplier for this cycle. The book
+      // value is the dry $40 book until live valuation is wired (week return is then
+      // 0 → HUNT, honestly); the multiplier is bounded by maxPositionPct downstream.
+      const currentValueUsd = config.startingCapitalUsd;
+      weekLedger = recordWeekValue(weekLedger, currentValueUsd);
+      const weekElapsed = weekElapsedFraction(new Date().toISOString(), weekStartIso, weekEndIso);
+      const weekState = deriveWeekBudgetState(weekLedger, currentValueUsd, weekElapsed);
+      const weekBudget = evaluateWeekBudget(weekState, weekBudgetCfg);
+      saveWeekLedger(weekLedger);
+      writeWeekBudget({
+        riskState: weekBudget.state,
+        sizeMultiplier: weekBudget.sizeMultiplier,
+        weekReturnPct: weekState.weekReturnPct,
+        weekElapsedPct: weekElapsed * 100,
+        legsUsed: weekState.legsUsed,
+        legsRemaining: weekBudget.legsRemaining,
+        legsScarce: weekBudget.legsScarce,
+        reason: weekBudget.reason,
+      });
+
       const ctx: PipelineContext = {
         config,
         calibration,
@@ -571,6 +661,8 @@ async function main(): Promise<void> {
         survivalMode: false,
         marketDataStale: false,
         calibrationStale: mode === "dry",
+        sizeMultiplier: weekBudget.sizeMultiplier,
+        riskState: weekBudget.state,
       };
 
       // Trending → catalyst candidates. Keep only eligible trending tokens and, when
@@ -769,6 +861,9 @@ async function main(): Promise<void> {
               });
             } else if (outcome.receipt) {
               spentTodayUsd += e.result.economics.positionSizeUsd;
+              // Count this entry against the weekly leg budget (WS6).
+              weekLedger = recordLeg(weekLedger);
+              saveWeekLedger(weekLedger);
               mandate.execution.status = "submitted";
               mandate.execution.txHash = outcome.receipt.txHash;
               mandate.proofAnchors.bscTxHash = outcome.receipt.txHash;
