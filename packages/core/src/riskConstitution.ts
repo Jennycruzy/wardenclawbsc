@@ -48,6 +48,8 @@ export interface RiskGateState {
   calibrationStale: boolean;
   marketDataStale: boolean;
   survivalMode: boolean;
+  /** WS7 committed market regime. RED blocks new directional entries. */
+  regime?: "GREEN" | "NEUTRAL" | "RED";
 }
 
 export interface RiskGateContext {
@@ -152,6 +154,12 @@ export function evaluateRiskGates(
   }
   if (state.survivalMode && !candidate.forcedSafetyExit && !candidate.isMicroScout) {
     return reject(RejectCode.DRAWDOWN_BUDGET, "survival mode blocks new risky entries");
+  }
+
+  // Red-day regime: block new directional entries (the stable↔stable scout and
+  // forced safety exits — the rotation to stables — are still allowed).
+  if (state.regime === "RED" && !candidate.forcedSafetyExit && !candidate.isMicroScout) {
+    return reject(RejectCode.REGIME_RED, "market regime is RED — new directional entries blocked");
   }
 
   // Concurrency + daily trade caps (entries only).

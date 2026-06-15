@@ -50,6 +50,15 @@ export interface RiskConfig {
   defendSizeMultiplier: number;
   lateWeekFraction: number;
 
+  // Red-day regime analyst (GREEN/NEUTRAL/RED with hysteresis)
+  redBenchmarkPct: number;
+  greenBenchmarkPct: number;
+  redFearGreed: number;
+  greenFearGreed: number;
+  redBreadth: number;
+  greenBreadth: number;
+  regimeHysteresisChecks: number;
+
   // Drawdown / survival — three layers
   competitionDqDrawdownPct: number; // disqualifier; 30% indicative, confirm with organizer
   internalWindowDrawdownPct: number; // the offense's actual risk budget
@@ -111,6 +120,14 @@ export const DEFAULT_RISK_CONFIG: RiskConfig = {
   pressSizeMultiplier: 1.3,
   defendSizeMultiplier: 0.5,
   lateWeekFraction: 0.7,
+
+  redBenchmarkPct: -4,
+  greenBenchmarkPct: 2,
+  redFearGreed: 25,
+  greenFearGreed: 60,
+  redBreadth: 0.3,
+  greenBreadth: 0.6,
+  regimeHysteresisChecks: 2,
 
   competitionDqDrawdownPct: 30,
   internalWindowDrawdownPct: 15,
@@ -210,6 +227,14 @@ export function loadRiskConfig(env: Record<string, string | undefined> = {}): Ri
     pressSizeMultiplier: num("PRESS_SIZE_MULTIPLIER", d.pressSizeMultiplier),
     defendSizeMultiplier: num("DEFEND_SIZE_MULTIPLIER", d.defendSizeMultiplier),
     lateWeekFraction: num("LATE_WEEK_FRACTION", d.lateWeekFraction),
+
+    redBenchmarkPct: num("RED_BENCHMARK_PCT", d.redBenchmarkPct),
+    greenBenchmarkPct: num("GREEN_BENCHMARK_PCT", d.greenBenchmarkPct),
+    redFearGreed: num("RED_FEAR_GREED", d.redFearGreed),
+    greenFearGreed: num("GREEN_FEAR_GREED", d.greenFearGreed),
+    redBreadth: num("RED_BREADTH", d.redBreadth),
+    greenBreadth: num("GREEN_BREADTH", d.greenBreadth),
+    regimeHysteresisChecks: num("REGIME_HYSTERESIS_CHECKS", d.regimeHysteresisChecks),
 
     competitionDqDrawdownPct: num("COMPETITION_DQ_DRAWDOWN_PCT", d.competitionDqDrawdownPct),
     internalWindowDrawdownPct: num("INTERNAL_WINDOW_DRAWDOWN_PCT", d.internalWindowDrawdownPct),

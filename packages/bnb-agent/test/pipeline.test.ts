@@ -277,6 +277,28 @@ describe("evaluateCandidate — week-schedule risk budget (WS6)", () => {
   });
 });
 
+describe("evaluateCandidate — red-day regime (WS7)", () => {
+  it("blocks a directional entry when the committed regime is RED", () => {
+    const r = evaluateCandidate(candidate(), ctx({ marketRegime: "RED" }));
+    expect(r.approved).toBe(false);
+    expect(r.rejectCode).toBe("REJECT_REGIME_RED");
+  });
+
+  it("still approves the stable↔stable Micro-Scout in a RED regime (rotation to stables)", () => {
+    const scout = evaluateCandidate(
+      candidate({ symbol: "USDC", tokenInAddress: USDT, tokenOutAddress: USDC, isMicroScout: true }),
+      ctx({ marketRegime: "RED" }),
+    );
+    expect(scout.approved).toBe(true);
+    expect(scout.signalFamily).toBe("scout");
+  });
+
+  it("approves a directional entry in GREEN/NEUTRAL regimes", () => {
+    expect(evaluateCandidate(candidate(), ctx({ marketRegime: "GREEN" })).approved).toBe(true);
+    expect(evaluateCandidate(candidate(), ctx({ marketRegime: "NEUTRAL" })).approved).toBe(true);
+  });
+});
+
 describe("evaluateCandidate — entry-quality gates (WS5)", () => {
   const catObs = (price: number, volume: number, rank: number | undefined): SignalObservation => ({
     checkIso: "2026-06-22T00:00:00Z",

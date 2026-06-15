@@ -42,6 +42,13 @@ import {
   weekElapsedFraction,
   serializeWeekLedger,
   parseWeekLedger,
+  initRegimeState,
+  evaluateRegime,
+  serializeRegimeState,
+  parseRegimeState,
+  ExitReason,
+  type RegimeState,
+  type RegimeConfig,
   type BscScoreInputs,
   type CalibrationReport,
   type PendingMandate,
@@ -186,6 +193,20 @@ function saveWeekLedger(ledger: WeekLedger): void {
   writeFileSync(WEEK_LEDGER_FILE, serializeWeekLedger(ledger), "utf8");
 }
 
+const REGIME_FILE = join(RUNTIME_DIR, "regime.json");
+
+/** Restore the committed regime + hysteresis counter so the analyst does not
+ *  reset to NEUTRAL (and re-incur the confirmation delay) on every restart. */
+function loadRegimeState(): RegimeState {
+  if (!existsSync(REGIME_FILE)) return initRegimeState();
+  return parseRegimeState(readFileSync(REGIME_FILE, "utf8")); // throws loud on corruption
+}
+
+function saveRegimeState(state: RegimeState): void {
+  mkdirSync(RUNTIME_DIR, { recursive: true });
+  writeFileSync(REGIME_FILE, serializeRegimeState(state), "utf8");
+}
+
 /** Heartbeat for the fast watch loop — surfaced on /bsc/ops. */
 function writeWatchHeartbeat(state: { watching: boolean; openPositions: number; lastError?: string }): void {
   mkdirSync(RUNTIME_DIR, { recursive: true });
@@ -210,6 +231,25 @@ function writeWeekBudget(state: {
   mkdirSync(RUNTIME_DIR, { recursive: true });
   writeFileSync(
     join(RUNTIME_DIR, "week-budget.json"),
+    JSON.stringify({ lastBeatIso: new Date().toISOString(), ...state }),
+    "utf8",
+  );
+}
+
+/** WS7 regime snapshot — surfaced on /bsc/ops (GREEN/NEUTRAL/RED). */
+function writeRegime(state: {
+  regime: string;
+  rawRegime: string;
+  score: number;
+  blocksEntries: boolean;
+  benchmarkChange24hPct: number;
+  fearGreed: number;
+  breadthUpFraction: number;
+  reason: string;
+}): void {
+  mkdirSync(RUNTIME_DIR, { recursive: true });
+  writeFileSync(
+    join(RUNTIME_DIR, "regime.snapshot.json"),
     JSON.stringify({ lastBeatIso: new Date().toISOString(), ...state }),
     "utf8",
   );
@@ -311,6 +351,22 @@ async function main(): Promise<void> {
   };
   let weekLedger = loadWeekLedger(weekStartIso, config.startingCapitalUsd);
   saveWeekLedger(weekLedger);
+
+  // WS7 red-day regime analyst: GREEN/NEUTRAL/RED with hysteresis, restored across
+  // restarts. A committed RED regime blocks new directional entries (the gate) and
+  // arms the watch loop to rotate open risk to stables. The flag is shared with the
+  // concurrent watch loop, which owns position exits.
+  const regimeCfg: RegimeConfig = {
+    redBenchmarkPct: config.redBenchmarkPct,
+    greenBenchmarkPct: config.greenBenchmarkPct,
+    redFearGreed: config.redFearGreed,
+    greenFearGreed: config.greenFearGreed,
+    redBreadth: config.redBreadth,
+    greenBreadth: config.greenBreadth,
+    hysteresisChecks: config.regimeHysteresisChecks,
+  };
+  let regimeState = loadRegimeState();
+  let regimeRed = regimeState.current === "RED";
 
   // Restore open positions (with live HWM/stop) so the trail resumes exactly.
   const openPositions = loadOpenPositions();
@@ -436,7 +492,9 @@ async function main(): Promise<void> {
         config: trailConfig,
         stalenessLimitSeconds: config.watchStalenessLimitSeconds,
         stalenessAction: config.watchStalenessAction,
-        tightMode: pos.trail.tightMode,
+        // RED regime tightens the trail AND forces a rotation-to-stables exit.
+        tightMode: pos.trail.tightMode || regimeRed,
+        forceExit: regimeRed ? { reason: ExitReason.REGIME_RED } : undefined,
       });
 
       if (tick.action === "stale") {
@@ -647,6 +705,38 @@ async function main(): Promise<void> {
         reason: weekBudget.reason,
       });
 
+      // WS7 regime read: benchmark 24h change, Fear & Greed, and breadth (fraction
+      // of the majors up). The committed regime carries hysteresis; RED blocks new
+      // entries (the gate) and arms the watch loop to rotate to stables.
+      const upMajors = quotes.data.filter((q) => q.percentChange24h > 0).length;
+      const breadthUpFraction = quotes.data.length > 0 ? upMajors / quotes.data.length : 0;
+      const regimeSignals = { benchmarkChange24hPct: bnbChange, fearGreed: fg.data.value, breadthUpFraction };
+      const regime = evaluateRegime(regimeState, regimeSignals, regimeCfg);
+      regimeState = regime.state;
+      regimeRed = regime.blocksEntries;
+      saveRegimeState(regimeState);
+      writeRegime({
+        regime: regimeState.current,
+        rawRegime: regime.rawRegime,
+        score: regime.score,
+        blocksEntries: regime.blocksEntries,
+        benchmarkChange24hPct: bnbChange,
+        fearGreed: fg.data.value,
+        breadthUpFraction,
+        reason: regime.reason,
+      });
+      if (regime.changed) {
+        await sendAlert(process.env.ALERT_WEBHOOK_URL, {
+          reason: regimeState.current === "RED" ? "emergency_stop" : "restart_recovery",
+          message:
+            regimeState.current === "RED"
+              ? `Regime turned RED (${regime.reason}) — blocking new entries and rotating open positions to stables.`
+              : `Regime cleared to ${regimeState.current} (${regime.reason}) — entries re-enabled.`,
+          timestamp: new Date().toISOString(),
+        });
+        console.warn(`[worker] ${regime.reason}`);
+      }
+
       const ctx: PipelineContext = {
         config,
         calibration,
@@ -663,6 +753,7 @@ async function main(): Promise<void> {
         calibrationStale: mode === "dry",
         sizeMultiplier: weekBudget.sizeMultiplier,
         riskState: weekBudget.state,
+        marketRegime: regimeState.current,
       };
 
       // Trending → catalyst candidates. Keep only eligible trending tokens and, when

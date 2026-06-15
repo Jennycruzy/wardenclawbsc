@@ -82,4 +82,29 @@ describe("fast watch loop — tick decision", () => {
     const tight = evaluateWatchTick({ ...base, tightMode: true, trail: trail(), price: { fresh: true, price: 120 } });
     expect(tight.updatedTrail!.stopPrice).toBeGreaterThan(normal.updatedTrail!.stopPrice);
   });
+
+  it("forces a rotation-to-stables exit on a RED regime even when the stop is not breached", () => {
+    // Price 109 is well above the stop — a normal tick would hold; the RED force-exit
+    // rotates to stables anyway, at the current price.
+    const r = evaluateWatchTick({
+      ...base,
+      trail: trail(),
+      price: { fresh: true, price: 109 },
+      forceExit: { reason: "EXIT_REGIME_RED" },
+    });
+    expect(r.action).toBe("exit");
+    expect(r.exit?.reason).toBe("EXIT_REGIME_RED");
+    expect(r.exit?.currentPrice).toBe(109);
+  });
+
+  it("never blind-exits on a forced rotation when the price feed is stale", () => {
+    const r = evaluateWatchTick({
+      ...base,
+      trail: trail(),
+      price: { fresh: false, secondsSinceLastPrice: 300 },
+      forceExit: { reason: "EXIT_REGIME_RED" },
+    });
+    expect(r.action).toBe("stale");
+    expect(r.exit).toBeUndefined();
+  });
 });

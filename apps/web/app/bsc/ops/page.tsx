@@ -1,6 +1,6 @@
 import { BscShell } from "@/components/bscShell";
 import { Card, SectionTitle, Badge, Dot, KeyValue } from "@/components/ui";
-import { readBscEnv, readWatchHeartbeat, readWeekBudget } from "@/lib/data";
+import { readBscEnv, readWatchHeartbeat, readWeekBudget, readRegime } from "@/lib/data";
 
 export const dynamic = "force-dynamic";
 
@@ -10,11 +10,18 @@ const WEEK_STATE_TONE: Record<string, "pos" | "warn" | "accent"> = {
   HUNT: "accent",
 };
 
+const REGIME_TONE: Record<string, "pos" | "neutral" | "neg"> = {
+  GREEN: "pos",
+  NEUTRAL: "neutral",
+  RED: "neg",
+};
+
 /** Phone-first health view (§0.11). Reads live config + integration readiness. */
 export default function BscOps() {
   const env = readBscEnv();
   const watch = readWatchHeartbeat();
   const week = readWeekBudget();
+  const regime = readRegime();
   const watchStaleMs = watch ? Date.now() - new Date(watch.lastBeatIso).getTime() : null;
   const watchHealthy = watchStaleMs !== null && watchStaleMs < 120_000;
 
@@ -68,6 +75,34 @@ export default function BscOps() {
             <p className="py-3 text-xs text-ink-faint">
               No watch heartbeat yet. The loop runs only while the worker is up; it watches open positions every{" "}
               <code className="font-mono">POSITION_WATCH_INTERVAL_SECONDS</code> and never opens trades or calls the LLM.
+            </p>
+          )}
+        </Card>
+
+        <Card>
+          <SectionTitle title="Red-day regime" subtitle="GREEN / NEUTRAL / RED with hysteresis — RED blocks new entries and rotates open risk to stables" />
+          {regime ? (
+            <div className="space-y-1">
+              <div className="flex items-center justify-between border-b border-line/50 py-2.5">
+                <div className="flex items-center gap-2.5">
+                  <Dot tone={REGIME_TONE[regime.regime] ?? "neutral"} />
+                  <span className="text-sm">Committed regime</span>
+                </div>
+                <Badge tone={REGIME_TONE[regime.regime] ?? "neutral"}>
+                  {regime.regime}
+                  {regime.blocksEntries ? " · entries blocked" : ""}
+                </Badge>
+              </div>
+              <KeyValue k="Raw read" v={`${regime.rawRegime} (score ${regime.score >= 0 ? "+" : ""}${regime.score})`} />
+              <KeyValue k="Benchmark 24h" v={`${regime.benchmarkChange24hPct >= 0 ? "+" : ""}${regime.benchmarkChange24hPct.toFixed(1)}%`} />
+              <KeyValue k="Fear & Greed" v={`${regime.fearGreed}`} />
+              <KeyValue k="Breadth up" v={`${Math.round(regime.breadthUpFraction * 100)}% of majors`} />
+              <p className="pt-2 text-xs text-ink-faint">{regime.reason}</p>
+            </div>
+          ) : (
+            <p className="py-3 text-xs text-ink-faint">
+              No regime snapshot yet. The worker votes benchmark 24h change, Fear &amp; Greed, and majors breadth each
+              cycle; a switch needs <code className="font-mono">REGIME_HYSTERESIS_CHECKS</code> consecutive confirming reads.
             </p>
           )}
         </Card>

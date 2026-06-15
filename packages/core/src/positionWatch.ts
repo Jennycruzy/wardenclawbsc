@@ -35,6 +35,12 @@ export interface WatchTickInput {
   stalenessAction: StalenessAction;
   /** Engage the tight (defend/red) trail on this tick. */
   tightMode?: boolean;
+  /**
+   * Force a rotation-to-stables exit this tick regardless of the stop, when the
+   * price is fresh (WS7 RED regime). A blind feed can't be exited, so staleness
+   * still takes precedence.
+   */
+  forceExit?: { reason: ExitReason };
 }
 
 export interface WatchExit {
@@ -84,6 +90,22 @@ export function evaluateWatchTick(input: WatchTickInput): WatchTickResult {
     tightMode: input.tightMode,
     config: input.config,
   });
+
+  // Forced rotation (RED regime) exits at the current price regardless of the stop.
+  if (input.forceExit) {
+    return {
+      action: "exit",
+      updatedTrail,
+      exit: {
+        reason: input.forceExit.reason,
+        stopPrice: updatedTrail.stopPrice,
+        currentPrice,
+        entryPrice: updatedTrail.entryPrice,
+        highWaterMark: updatedTrail.highWaterMark,
+        gainPct: unrealizedGainPct(updatedTrail, currentPrice),
+      },
+    };
+  }
 
   if (isStopBreached(updatedTrail, currentPrice)) {
     return {

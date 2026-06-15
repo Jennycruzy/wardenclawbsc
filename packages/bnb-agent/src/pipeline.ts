@@ -26,6 +26,7 @@ import {
   type BscScoreInputs,
   type CalibrationReport,
   type EligibleAllowlist,
+  type Regime,
   type RiskConfig,
   type RiskState,
   type SignalFamily,
@@ -94,6 +95,9 @@ export interface PipelineContext {
   sizeMultiplier?: number;
   /** The risk state that produced `sizeMultiplier` (for the audit trail). */
   riskState?: RiskState;
+  /** WS7 committed market regime. RED blocks new directional entries (scouts and
+   *  safety exits excepted). Defaults to undefined (no regime gate). */
+  marketRegime?: Regime;
 }
 
 export interface PipelineResult {
@@ -352,6 +356,7 @@ export function evaluateCandidate(input: CandidateInput, ctx: PipelineContext): 
       calibrationStale: ctx.calibrationStale,
       marketDataStale: ctx.marketDataStale,
       survivalMode: ctx.survivalMode,
+      regime: ctx.marketRegime,
     },
     {
       config: ctx.config,

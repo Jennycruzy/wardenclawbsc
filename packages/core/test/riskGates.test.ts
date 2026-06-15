@@ -168,4 +168,31 @@ describe("risk constitution gate chain", () => {
     );
     expect(r.rejectCode).toBe("REJECT_SHADOW_FILL");
   });
+
+  it("blocks new directional entries in a RED regime (REJECT_REGIME_RED)", () => {
+    const r = evaluateRiskGates(baseCandidate, { ...baseState, regime: "RED" }, ctx);
+    expect(r.approved).toBe(false);
+    expect(r.rejectCode).toBe("REJECT_REGIME_RED");
+  });
+
+  it("still allows the stable scout and the rotation-to-stables exit in a RED regime", () => {
+    const scout = evaluateRiskGates(
+      { ...baseCandidate, tokenOutAddress: USDC, isMicroScout: true },
+      { ...baseState, regime: "RED" },
+      ctx,
+    );
+    expect(scout.approved).toBe(true);
+
+    const exit = evaluateRiskGates(
+      { ...baseCandidate, forcedSafetyExit: true, expectedMoveBps: 0 },
+      { ...baseState, regime: "RED" },
+      ctx,
+    );
+    expect(exit.approved).toBe(true);
+  });
+
+  it("does not block entries when the regime is GREEN or NEUTRAL", () => {
+    expect(evaluateRiskGates(baseCandidate, { ...baseState, regime: "GREEN" }, ctx).approved).toBe(true);
+    expect(evaluateRiskGates(baseCandidate, { ...baseState, regime: "NEUTRAL" }, ctx).approved).toBe(true);
+  });
 });
