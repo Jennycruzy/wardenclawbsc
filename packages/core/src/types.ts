@@ -80,6 +80,7 @@ export interface MandateDecision {
   regime: string;
   reason: string[];
   rejectedReasons?: string[];
+  pressTrade?: boolean;
 }
 
 export interface MandateEconomics {

@@ -241,40 +241,54 @@ describe("evaluateCandidate — governor + micro-scout", () => {
 });
 
 describe("evaluateCandidate — week-schedule risk budget (WS6)", () => {
-  it("DEFEND shrinks position size below the HUNT baseline", () => {
-    const baseline = evaluateCandidate(candidate(), ctx());
-    const defend = evaluateCandidate(candidate(), ctx({ sizeMultiplier: 0.5, riskState: "DEFEND" }));
+  const score70 = {
+    momentum: 0.7,
+    liquiditySafety: 0.7,
+    relativeStrengthVsBnb: 0.7,
+    sentiment: 0.7,
+    volatilitySafety: 0.7,
+    walletRiskState: 0.7,
+  };
+
+  it("PRESS lowers the active threshold by one band and marks the mandate", () => {
+    const hunt = evaluateCandidate(candidate({ scoreInputs: score70 }), ctx({ riskState: "HUNT", minimumScore: 80 }));
+    const pressCalibration: CalibrationReport = {
+      ...calibration,
+      bands: [
+        { minScore: 60, realizedMoveBps: 250, hitRate: 0.7, realizedVsPredicted: 1 },
+        calibration.bands[1]!,
+      ],
+    };
+    const press = evaluateCandidate(
+      candidate({ scoreInputs: score70 }),
+      ctx({ riskState: "PRESS", minimumScore: 65, pressTrade: true, calibration: pressCalibration }),
+    );
+    expect(hunt.approved).toBe(false);
+    expect(press.approved).toBe(true);
+    expect(press.pressTrade).toBe(true);
+  });
+
+  it("DEFEND raises the score threshold", () => {
+    const defend = evaluateCandidate(candidate({ scoreInputs: score70 }), ctx({ riskState: "DEFEND", minimumScore: 90 }));
+    expect(defend.approved).toBe(false);
+    expect(defend.rejectCode).toBe("REJECT_LOW_SCORE");
+  });
+
+  it("DEFEND adds scored net-edge margin without changing size caps", () => {
+    const defend = evaluateCandidate(candidate(), ctx({ riskState: "DEFEND", netEdgeBonusBps: 50 }));
     expect(defend.approved).toBe(true);
-    expect(defend.economics.positionSizeUsd).toBeLessThan(baseline.economics.positionSizeUsd);
     expect(defend.riskState).toBe("DEFEND");
-    expect(defend.sizeMultiplier).toBe(0.5);
-    expect(defend.reasons.some((s) => s.includes("week budget DEFEND"))).toBe(true);
+    expect(defend.economics.positionSizeUsd).toBeLessThanOrEqual(26.6);
   });
 
-  it("PRESS grows position size above the HUNT baseline", () => {
-    const baseline = evaluateCandidate(candidate(), ctx());
-    const press = evaluateCandidate(candidate(), ctx({ sizeMultiplier: 1.3, riskState: "PRESS" }));
-    expect(press.approved).toBe(true);
-    expect(press.economics.positionSizeUsd).toBeGreaterThan(baseline.economics.positionSizeUsd);
-    expect(press.riskState).toBe("PRESS");
-  });
-
-  it("a large PRESS multiplier is still bounded by the hard caps (never breaches them)", () => {
-    const press = evaluateCandidate(candidate(), ctx({ sizeMultiplier: 5, riskState: "PRESS" }));
-    expect(press.approved).toBe(true);
-    // maxPositionPct (70%) of deployable ($38) = $26.6; the volatility-stop size is
-    // even tighter here, so a 5× multiplier cannot push size past those caps.
-    expect(press.economics.positionSizeUsd).toBeLessThanOrEqual(26.6);
-  });
-
-  it("does not apply the week multiplier to a Micro-Scout", () => {
+  it("does not apply week thresholds to a Micro-Scout", () => {
     const scout = evaluateCandidate(
       candidate({ symbol: "USDC", tokenInAddress: USDT, tokenOutAddress: USDC, isMicroScout: true }),
-      ctx({ sizeMultiplier: 0.5, riskState: "DEFEND" }),
+      ctx({ riskState: "DEFEND", minimumScore: 90, netEdgeBonusBps: 50 }),
     );
     expect(scout.approved).toBe(true);
     expect(scout.economics.positionSizeUsd).toBe(DEFAULT_RISK_CONFIG.microScoutUsd);
-    expect(scout.sizeMultiplier).toBeUndefined();
+    expect(scout.pressTrade).toBeUndefined();
   });
 });
 

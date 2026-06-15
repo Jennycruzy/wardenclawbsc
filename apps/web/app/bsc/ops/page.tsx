@@ -1,6 +1,14 @@
 import { BscShell } from "@/components/bscShell";
 import { Card, SectionTitle, Badge, Dot, KeyValue } from "@/components/ui";
-import { readBscEnv, readWatchHeartbeat, readWeekBudget, readRegime, readWalletCost } from "@/lib/data";
+import {
+  competitionCountdown,
+  readBscEnv,
+  readPreflightStatus,
+  readWatchHeartbeat,
+  readWeekBudget,
+  readRegime,
+  readWalletCost,
+} from "@/lib/data";
 
 export const dynamic = "force-dynamic";
 
@@ -23,6 +31,13 @@ export default function BscOps() {
   const week = readWeekBudget();
   const regime = readRegime();
   const walletCost = readWalletCost();
+  const countdown = competitionCountdown();
+  const preflight = readPreflightStatus();
+  const hoursRemaining = Math.max(0, Math.floor(countdown.remainingMs / 3_600_000));
+  const days = Math.floor(hoursRemaining / 24);
+  const hours = hoursRemaining % 24;
+  const nowMs = Date.now();
+  const registrationEscalated = nowMs >= Date.parse("2026-06-18T00:00:00Z");
   const watchStaleMs = watch ? Date.now() - new Date(watch.lastBeatIso).getTime() : null;
   const watchHealthy = watchStaleMs !== null && watchStaleMs < 120_000;
 
@@ -40,6 +55,43 @@ export default function BscOps() {
       subtitle="Health, integrations, and the emergency stop — usable from a phone."
       actions={<Badge tone="neutral"><Dot tone="neutral" /> read-only</Badge>}
     >
+      <Card className={`mb-3 ${!preflight.registered ? "border-neg/50 bg-neg/10" : "border-pos/30 bg-pos/5"}`}>
+        <SectionTitle
+          title={countdown.phase === "preflight" ? `PREFLIGHT: ${days}d ${hours}h remaining` : `Competition ${countdown.phase}`}
+          subtitle={`${countdown.label} · opens June 22, 2026 at 00:00 UTC`}
+        />
+        {!preflight.registered ? (
+          <div className="rounded-lg border border-neg/40 bg-bg px-3 py-3">
+            <div className="flex items-center gap-2">
+              <Badge tone="neg">{registrationEscalated ? "URGENT" : "DO FIRST"}</Badge>
+              <strong className="text-sm">Registration tx is missing</strong>
+            </div>
+            <p className="mt-2 text-xs text-ink-muted">
+              Run <code className="font-mono text-ink">twak compete register</code>, then set{" "}
+              <code className="font-mono text-ink">REGISTRATION_TX_HASH</code>. Registration closes when trading opens.
+            </p>
+          </div>
+        ) : (
+          <p className="text-sm text-pos">Registration tx recorded. Keep the hash in the deployment environment.</p>
+        )}
+        <div className="mt-3 grid gap-2 text-xs sm:grid-cols-2">
+          {[
+            ["1. Register with TWAK", preflight.registered],
+            ["2. Build eligible tokens", preflight.eligibleTokensBuilt],
+            ["3. Fund wallet + gas", false],
+            ["4. $5 rehearsal + watchdog/trail exits", preflight.rehearsalPassed],
+            ["5. Run calibration", preflight.calibrationPresent],
+            ["6. Phone alerts + kill-switch", preflight.alertsConfigured && preflight.killSwitchConfigured],
+            ["7. DoraHacks submission", false],
+          ].map(([label, done]) => (
+            <div key={String(label)} className="flex items-center gap-2 rounded-md border border-line/60 px-2.5 py-2">
+              <Dot tone={done ? "pos" : "warn"} />
+              <span>{label}</span>
+            </div>
+          ))}
+        </div>
+      </Card>
+
       <div className="grid gap-3 lg:grid-cols-2">
         <Card>
           <SectionTitle title="Integration readiness" />
@@ -96,6 +148,10 @@ export default function BscOps() {
               </div>
               <KeyValue k="Raw read" v={`${regime.rawRegime} (score ${regime.score >= 0 ? "+" : ""}${regime.score})`} />
               <KeyValue k="Benchmark 24h" v={`${regime.benchmarkChange24hPct >= 0 ? "+" : ""}${regime.benchmarkChange24hPct.toFixed(1)}%`} />
+              <KeyValue k="Benchmark short" v={`${regime.benchmarkShortChangePct >= 0 ? "+" : ""}${regime.benchmarkShortChangePct.toFixed(1)}%`} />
+              <KeyValue k="BTC 24h" v={`${regime.btcChange24hPct >= 0 ? "+" : ""}${regime.btcChange24hPct.toFixed(1)}%`} />
+              <KeyValue k="BNB vs recent mean" v={regime.benchmarkAboveRecentMean ? "above" : "below"} />
+              <KeyValue k="Volatility ratio" v={`${regime.volatilityRatio.toFixed(2)}x`} />
               <KeyValue k="Fear & Greed" v={`${regime.fearGreed}`} />
               <KeyValue k="Breadth up" v={`${Math.round(regime.breadthUpFraction * 100)}% of majors`} />
               <p className="pt-2 text-xs text-ink-faint">{regime.reason}</p>
@@ -123,6 +179,9 @@ export default function BscOps() {
               </div>
               <KeyValue k="Week return" v={`${week.weekReturnPct >= 0 ? "+" : ""}${week.weekReturnPct.toFixed(1)}%`} />
               <KeyValue k="Week elapsed" v={`${week.weekElapsedPct.toFixed(0)}%`} />
+              <KeyValue k="Entry threshold" v={`${week.minimumScore}+ score`} />
+              <KeyValue k="Net-edge bonus" v={`${week.netEdgeBonusBps} bps`} />
+              <KeyValue k="PRESS shot" v={week.pressTradeUsed ? "consumed" : week.pressTrade ? "available now" : "not active"} />
               <KeyValue
                 k="Legs"
                 v={`${week.legsUsed} used · ${week.legsRemaining} left${week.legsScarce ? " (scarce)" : ""}`}

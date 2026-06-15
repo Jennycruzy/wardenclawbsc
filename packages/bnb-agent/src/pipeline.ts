@@ -98,6 +98,12 @@ export interface PipelineContext {
   /** WS7 committed market regime. RED blocks new directional entries (scouts and
    *  safety exits excepted). Defaults to undefined (no regime gate). */
   marketRegime?: Regime;
+  /** Active week-state score floor. PRESS lowers it once; DEFEND raises it. */
+  minimumScore?: number;
+  /** Additional scored net-edge margin required by DEFEND. */
+  netEdgeBonusBps?: number;
+  /** Marks the one pre-committed late-week PRESS trade. */
+  pressTrade?: boolean;
 }
 
 export interface PipelineResult {
@@ -127,6 +133,7 @@ export interface PipelineResult {
   /** WS6 week-schedule risk state and the size multiplier it imposed. */
   riskState?: RiskState;
   sizeMultiplier?: number;
+  pressTrade?: boolean;
   intent?: TwakIntent;
 }
 
@@ -134,6 +141,7 @@ export function evaluateCandidate(input: CandidateInput, ctx: PipelineContext): 
   const reasons: string[] = [];
   const score = scoreBsc(input.scoreInputs);
   const mode = bscScoreMode(score);
+  const minimumScore = ctx.minimumScore ?? 65;
 
   const baseEconomics = {
     expectedMoveBps: 0,
@@ -146,7 +154,7 @@ export function evaluateCandidate(input: CandidateInput, ctx: PipelineContext): 
   };
 
   // Score gate: below scout threshold → no trade.
-  if (mode === "none" && !input.isMicroScout) {
+  if (score < minimumScore && !input.isMicroScout) {
     return {
       symbol: input.symbol,
       signalFamily: input.signalFamily,
@@ -154,7 +162,7 @@ export function evaluateCandidate(input: CandidateInput, ctx: PipelineContext): 
       mode,
       approved: false,
       rejectCode: "REJECT_LOW_SCORE",
-      reasons: [`score ${score} below scout threshold`],
+      reasons: [`score ${score} below active ${ctx.riskState ?? "HUNT"} threshold ${minimumScore}`],
       economics: baseEconomics,
       governor: { sizeFraction: 0, bindingLayer: "n/a", remainingBudgetPct: 0 },
     };
@@ -323,7 +331,7 @@ export function evaluateCandidate(input: CandidateInput, ctx: PipelineContext): 
     : evaluateNetEdge({
         expectedMoveBps,
         scoredFrictionBps,
-        netEdgeMinBps: ctx.config.netEdgeMinBps,
+        netEdgeMinBps: ctx.config.netEdgeMinBps + (ctx.netEdgeBonusBps ?? 0),
         realRoundTripBps,
         walletFloorFraction: ctx.config.walletFloorFraction,
       });
@@ -443,6 +451,7 @@ export function evaluateCandidate(input: CandidateInput, ctx: PipelineContext): 
     governor: { sizeFraction: governor.sizeFraction, bindingLayer: governor.bindingLayer, remainingBudgetPct: governor.remainingBudgetPct },
     riskState: input.isMicroScout ? undefined : ctx.riskState,
     sizeMultiplier: input.isMicroScout ? undefined : sizeMultiplier,
+    pressTrade: input.isMicroScout ? undefined : ctx.pressTrade,
     intent,
   };
 }

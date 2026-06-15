@@ -37,6 +37,9 @@ import {
   initWeekLedger,
   recordWeekValue,
   recordLeg,
+  consumePressTrade,
+  legsOnUtcDay,
+  entriesOnUtcDay,
   deriveWeekBudgetState,
   evaluateWeekBudget,
   weekElapsedFraction,
@@ -54,6 +57,7 @@ import {
   serializeRollingCost,
   parseRollingCost,
   computeFriction,
+  scoredReturnBps,
   type RegimeState,
   type RegimeConfig,
   type RollingCostState,
@@ -85,7 +89,9 @@ import {
 import {
   evaluateCandidate,
   buildBscMandate,
+  decideTradePlan,
   sendAlert,
+  registrationAlertState,
   registerAgentIdentity,
   type PipelineContext,
 } from "@wardenclaw/bnb-agent";
@@ -216,6 +222,77 @@ function saveRegimeState(state: RegimeState): void {
 }
 
 const WALLET_COST_FILE = join(RUNTIME_DIR, "wallet-cost.json");
+const BOOK_FILE = join(RUNTIME_DIR, "book.json");
+const REGISTRATION_ALERT_FILE = join(RUNTIME_DIR, "registration-alert.json");
+const BENCHMARK_HISTORY_FILE = join(RUNTIME_DIR, "benchmark-history.json");
+const MANUAL_REVIEW_FILE = join(RUNTIME_DIR, "manual-review.json");
+
+interface RuntimeBook {
+  walletCashUsd: number;
+  scoredValueUsd: number;
+}
+
+function loadBook(): RuntimeBook {
+  if (!existsSync(BOOK_FILE)) {
+    return { walletCashUsd: config.startingCapitalUsd, scoredValueUsd: config.startingCapitalUsd };
+  }
+  const parsed = JSON.parse(readFileSync(BOOK_FILE, "utf8")) as RuntimeBook;
+  if (!Number.isFinite(parsed.walletCashUsd) || !Number.isFinite(parsed.scoredValueUsd)) {
+    throw new Error("runtime book is corrupt");
+  }
+  return parsed;
+}
+
+function saveBook(book: RuntimeBook): void {
+  mkdirSync(RUNTIME_DIR, { recursive: true });
+  writeFileSync(BOOK_FILE, JSON.stringify(book), "utf8");
+}
+
+function manualReviewRequired(): boolean {
+  return existsSync(MANUAL_REVIEW_FILE);
+}
+
+function requireManualReview(detail: Record<string, unknown>): void {
+  mkdirSync(RUNTIME_DIR, { recursive: true });
+  writeFileSync(
+    MANUAL_REVIEW_FILE,
+    JSON.stringify({ requiredAtIso: new Date().toISOString(), ...detail }),
+    "utf8",
+  );
+}
+
+function lastRegistrationAlertMs(): number {
+  if (!existsSync(REGISTRATION_ALERT_FILE)) return 0;
+  try {
+    return Number((JSON.parse(readFileSync(REGISTRATION_ALERT_FILE, "utf8")) as { sentAtMs?: number }).sentAtMs ?? 0);
+  } catch {
+    return 0;
+  }
+}
+
+function markRegistrationAlert(nowMs: number): void {
+  mkdirSync(RUNTIME_DIR, { recursive: true });
+  writeFileSync(REGISTRATION_ALERT_FILE, JSON.stringify({ sentAtMs: nowMs }), "utf8");
+}
+
+interface BenchmarkPoint {
+  atIso: string;
+  priceUsd: number;
+}
+
+function loadBenchmarkHistory(): BenchmarkPoint[] {
+  if (!existsSync(BENCHMARK_HISTORY_FILE)) return [];
+  const parsed = JSON.parse(readFileSync(BENCHMARK_HISTORY_FILE, "utf8")) as BenchmarkPoint[];
+  if (!Array.isArray(parsed) || parsed.some((p) => !Number.isFinite(p.priceUsd))) {
+    throw new Error("benchmark history is corrupt");
+  }
+  return parsed.slice(-288);
+}
+
+function saveBenchmarkHistory(history: BenchmarkPoint[]): void {
+  mkdirSync(RUNTIME_DIR, { recursive: true });
+  writeFileSync(BENCHMARK_HISTORY_FILE, JSON.stringify(history.slice(-288)), "utf8");
+}
 
 /** Restore the rolling real round-trip cost (Wallet Ledger) so measured fills
  *  survive restarts. Bootstraps from a modeled real-friction estimate at size
@@ -263,6 +340,11 @@ function writeWatchHeartbeat(state: { watching: boolean; openPositions: number; 
 function writeWeekBudget(state: {
   riskState: string;
   sizeMultiplier: number;
+  minimumScore: number;
+  netEdgeBonusBps: number;
+  pressTrade: boolean;
+  pressTradeUsed: boolean;
+  tightTrail: boolean;
   weekReturnPct: number;
   weekElapsedPct: number;
   legsUsed: number;
@@ -285,6 +367,10 @@ function writeRegime(state: {
   score: number;
   blocksEntries: boolean;
   benchmarkChange24hPct: number;
+  benchmarkShortChangePct: number;
+  btcChange24hPct: number;
+  benchmarkAboveRecentMean: boolean;
+  volatilityRatio: number;
   fearGreed: number;
   breadthUpFraction: number;
   reason: string;
@@ -336,6 +422,12 @@ async function main(): Promise<void> {
       process.exit(1);
     }
   }
+  if (manualReviewRequired()) {
+    console.error(
+      "✗ Live execution blocked: data/runtime/manual-review.json exists. Resolve the submitted transaction from chain evidence, reconcile book/position state, then remove the flag.",
+    );
+    process.exit(1);
+  }
 
   console.log(`[worker] starting in ${mode.toUpperCase()} mode (interval ${intervalMs / 1000}s)`);
 
@@ -381,18 +473,23 @@ async function main(): Promise<void> {
   const weekLengthDays = Math.max(1, Math.round((Date.parse(weekEndIso) - Date.parse(weekStartIso)) / 86_400_000));
   const weekBudgetCfg: WeekBudgetConfig = {
     weeklyLegBudget: config.weeklyLegBudget,
-    pressThresholdPct: config.pressThresholdPct,
-    defendThresholdPct: config.defendThresholdPct,
-    lockInReturnPct: config.lockInReturnPct,
-    maxGiveBackPct: config.maxGiveBackPct,
-    pressSizeMultiplier: config.pressSizeMultiplier,
-    defendSizeMultiplier: config.defendSizeMultiplier,
-    lateWeekFraction: config.lateWeekFraction,
+    flatBandLoPct: config.flatBandLoPct,
+    flatBandHiPct: config.flatBandHiPct,
+    defendTriggerPct: config.defendTriggerPct,
+    huntMinScore: config.huntMinScore,
+    pressMinScore: config.pressMinScore,
+    defendMinScore: config.defendMinScore,
+    netEdgeDefendBonusBps: config.netEdgeDefendBonusBps,
+    pressStartDay: config.pressStartDay,
     reservedLegsPerDay: config.minTradesPerDay,
     weekLengthDays,
   };
   let weekLedger = loadWeekLedger(weekStartIso, config.startingCapitalUsd);
   saveWeekLedger(weekLedger);
+  let book = loadBook();
+  saveBook(book);
+  let defendTightTrail = false;
+  let lastRiskState: string | null = null;
 
   // WS7 red-day regime analyst: GREEN/NEUTRAL/RED with hysteresis, restored across
   // restarts. A committed RED regime blocks new directional entries (the gate) and
@@ -406,9 +503,11 @@ async function main(): Promise<void> {
     redBreadth: config.redBreadth,
     greenBreadth: config.greenBreadth,
     hysteresisChecks: config.regimeHysteresisChecks,
+    highVolatilityRatio: config.regimeHighVolatilityRatio,
   };
   let regimeState = loadRegimeState();
   let regimeRed = regimeState.current === "RED";
+  let benchmarkHistory = loadBenchmarkHistory();
 
   // WS8 Wallet Ledger: the MEASURED real round-trip cost. Bootstraps from a modeled
   // real-friction estimate at a representative size and is replaced by the rolling
@@ -444,6 +543,8 @@ async function main(): Promise<void> {
   const calibration = seedCalibration();
   const usdt = loaded.tokens.find((t) => t.symbol === "USDT");
   if (!usdt) throw new Error("USDT not found in eligible set — cannot route stable legs.");
+  const usdc = loaded.tokens.find((t) => t.symbol === "USDC");
+  if (!usdc) throw new Error("USDC not found in eligible set — cannot run the compliance scout.");
 
   const twakPolicy: TwakPolicyConfig = {
     requiredChainId: 56,
@@ -531,6 +632,12 @@ async function main(): Promise<void> {
     return q.amountOut; // USDT out for 1 token ≈ USD price
   }
 
+  async function currentWalletValueUsd(): Promise<number> {
+    let value = book.walletCashUsd;
+    for (const pos of openPositions) value += pos.amountTokens * (await fetchTokenPriceUsd(pos));
+    return value;
+  }
+
   /** One pass over all open positions: ratchet trails, fire safety exits on breach. */
   async function watchAllPositions(): Promise<void> {
     for (const pos of [...openPositions]) {
@@ -551,7 +658,7 @@ async function main(): Promise<void> {
         stalenessLimitSeconds: config.watchStalenessLimitSeconds,
         stalenessAction: config.watchStalenessAction,
         // RED regime tightens the trail AND forces a rotation-to-stables exit.
-        tightMode: pos.trail.tightMode || regimeRed,
+        tightMode: pos.trail.tightMode || regimeRed || defendTightTrail,
         forceExit: regimeRed ? { reason: ExitReason.REGIME_RED } : undefined,
       });
 
@@ -619,6 +726,20 @@ async function main(): Promise<void> {
             });
             continue; // keep watching — do not drop a position we failed to exit
           }
+          if (outcome?.receipt && typeof outcome.receipt.realizedOut !== "number") {
+            requireManualReview({
+              mandateId: pos.mandateId,
+              txHash: outcome.receipt.txHash,
+              action: "exit",
+              reason: "TWAK submitted the exit without a confirmed realizedOut; do not retry",
+            });
+            await sendAlert(process.env.ALERT_WEBHOOK_URL, {
+              reason: "restart_recovery",
+              message: `Exit ${outcome.receipt.txHash} submitted without confirmed output. Trading halted for manual chain reconciliation; do not retry.`,
+              timestamp: new Date().toISOString(),
+            });
+            return;
+          }
           console.log(`[worker] ${tick.exit.reason} ${pos.symbol} @ ${tick.exit.currentPrice} (gain ${tick.exit.gainPct.toFixed(2)}%)`);
 
           // WS8: measure the REAL round-trip cost from this completed fill (entry
@@ -639,6 +760,18 @@ async function main(): Promise<void> {
             console.log(
               `[worker] measured real round-trip on ${pos.symbol}: ${measuredBps.toFixed(0)}bps (rolling ${rollingRealCostBps(walletCost).toFixed(0)}bps over ${walletCost.samples.length} fill(s))`,
             );
+            book.walletCashUsd += outcome.receipt.realizedOut;
+            const priceMoveBps = ((tick.exit.currentPrice - tick.exit.entryPrice) / tick.exit.entryPrice) * 10_000;
+            book.scoredValueUsd +=
+              (scoredReturnBps({
+                priceMoveBps,
+                scoredFrictionBps: config.scoringSimCostBps * 2,
+              }) /
+                10_000) *
+              pos.notionalUsd;
+            weekLedger = recordLeg(weekLedger, "exit");
+            saveBook(book);
+            saveWeekLedger(weekLedger);
           }
         } catch (err) {
           await sendAlert(process.env.ALERT_WEBHOOK_URL, {
@@ -660,7 +793,7 @@ async function main(): Promise<void> {
   async function runWatchLoop(): Promise<void> {
     for (;;) {
       try {
-        if (openPositions.length > 0) await watchAllPositions();
+        if (openPositions.length > 0 && !manualReviewRequired()) await watchAllPositions();
         writeWatchHeartbeat({ watching: openPositions.length > 0, openPositions: openPositions.length });
       } catch (err) {
         writeWatchHeartbeat({ watching: openPositions.length > 0, openPositions: openPositions.length, lastError: (err as Error).message });
@@ -690,18 +823,44 @@ async function main(): Promise<void> {
     }
 
     try {
+      if (manualReviewRequired()) {
+        console.error("[worker] manual review flag armed - halting before any new entry.");
+        break;
+      }
+      const nowMs = Date.now();
+      const registration = registrationAlertState(
+        nowMs,
+        Boolean(process.env.REGISTRATION_TX_HASH),
+        Date.parse(COMPETITION.tradingWindow.startUtc),
+        Date.parse("2026-06-18T00:00:00Z"),
+      );
+      if (
+        registration.severity !== "none" &&
+        nowMs - lastRegistrationAlertMs() >= registration.cadenceMs
+      ) {
+        await sendAlert(process.env.ALERT_WEBHOOK_URL, {
+          reason: "registration_missing",
+          message: `[${registration.severity.toUpperCase()}] ${registration.message}`,
+          timestamp: new Date(nowMs).toISOString(),
+        });
+        markRegistrationAlert(nowMs);
+      }
+
       const symbols = STARTER_MAJORS.map((t) => t.symbol).slice(0, 6);
-      const [quotes, fg, bnb, trending] = await Promise.all([
+      const [quotes, fg, benchmarks, trending] = await Promise.all([
         cmc.getQuotes(symbols),
         cmc.getFearGreed(),
-        cmc.getQuotes(["BNB"]),
+        cmc.getQuotes(["BNB", "BTC"]),
         cmc.getTrending(20).catch((err) => {
           console.warn(`[worker] trending fetch failed (catalyst candidates skipped this cycle): ${(err as Error).message}`);
           return null;
         }),
       ]);
-      const bnbChange = bnb.data[0]?.percentChange24h ?? 0;
-      const bnbPrice = bnb.data[0]?.priceUsd ?? 0;
+      const bnbQuote = benchmarks.data.find((q) => q.symbol === "BNB");
+      const btcQuote = benchmarks.data.find((q) => q.symbol === "BTC");
+      if (!bnbQuote || !btcQuote) throw new Error("CMC benchmark quotes missing BNB or BTC");
+      const bnbChange = bnbQuote.percentChange24h;
+      const bnbPrice = bnbQuote.priceUsd;
 
       // Real gas cost per leg from on-chain gas price × BNB price.
       const gasPerLegUsd = bnbPrice > 0 ? await reader.gasPerLegUsd(bnbPrice) : 0.02;
@@ -763,19 +922,38 @@ async function main(): Promise<void> {
       // If x402 is required by config but unavailable or failed, block trades.
       const x402Blocks = x402Required && (x402Path === "none" || x402Failed);
 
-      // WS6: update the week ledger's peak with the current book value, then derive
-      // the HUNT/PRESS/DEFEND state and the size multiplier for this cycle. The book
-      // value is the dry $40 book until live valuation is wired (week return is then
-      // 0 → HUNT, honestly); the multiplier is bounded by maxPositionPct downstream.
-      const currentValueUsd = config.startingCapitalUsd;
+      // WS6 reads the competition-style Scored Ledger, while wallet protection
+      // reads actual stable cash plus marked-to-market open fills.
+      const walletValueUsd = await currentWalletValueUsd();
+      const currentValueUsd = book.scoredValueUsd;
       weekLedger = recordWeekValue(weekLedger, currentValueUsd);
       const weekElapsed = weekElapsedFraction(new Date().toISOString(), weekStartIso, weekEndIso);
       const weekState = deriveWeekBudgetState(weekLedger, currentValueUsd, weekElapsed);
       const weekBudget = evaluateWeekBudget(weekState, weekBudgetCfg);
+      defendTightTrail = weekBudget.tightTrail;
+      if (weekBudget.state !== lastRiskState) {
+        await audit.append({
+          timestamp: new Date().toISOString(),
+          mandateId: "week-state",
+          stage: "risk",
+          input: {
+            previousState: lastRiskState,
+            weekReturnPct: weekState.weekReturnPct,
+            pressTradeUsed: weekState.pressTradeUsed,
+          },
+          output: { state: weekBudget.state, reason: weekBudget.reason },
+        });
+        lastRiskState = weekBudget.state;
+      }
       saveWeekLedger(weekLedger);
       writeWeekBudget({
         riskState: weekBudget.state,
         sizeMultiplier: weekBudget.sizeMultiplier,
+        minimumScore: weekBudget.minimumScore,
+        netEdgeBonusBps: weekBudget.netEdgeBonusBps,
+        pressTrade: weekBudget.pressTrade,
+        pressTradeUsed: weekState.pressTradeUsed,
+        tightTrail: weekBudget.tightTrail,
         weekReturnPct: weekState.weekReturnPct,
         weekElapsedPct: weekElapsed * 100,
         legsUsed: weekState.legsUsed,
@@ -789,8 +967,27 @@ async function main(): Promise<void> {
       // entries (the gate) and arms the watch loop to rotate to stables.
       const upMajors = quotes.data.filter((q) => q.percentChange24h > 0).length;
       const breadthUpFraction = quotes.data.length > 0 ? upMajors / quotes.data.length : 0;
-      const regimeSignals = { benchmarkChange24hPct: bnbChange, fearGreed: fg.data.value, breadthUpFraction };
+      const recentMean =
+        benchmarkHistory.length > 0
+          ? benchmarkHistory.reduce((sum, p) => sum + p.priceUsd, 0) / benchmarkHistory.length
+          : bnbPrice;
+      const majorsShortVol =
+        quotes.data.length > 0
+          ? quotes.data.reduce((sum, q) => sum + Math.abs(q.percentChange1h), 0) / quotes.data.length
+          : 0;
+      const volatilityRatio = Math.abs(bnbQuote.percentChange1h) / Math.max(majorsShortVol, 0.01);
+      const regimeSignals = {
+        benchmarkChange24hPct: bnbChange,
+        benchmarkShortChangePct: bnbQuote.percentChange1h,
+        btcChange24hPct: btcQuote.percentChange24h,
+        benchmarkAboveRecentMean: bnbPrice >= recentMean,
+        fearGreed: fg.data.value,
+        breadthUpFraction,
+        volatilityRatio,
+      };
       const regime = evaluateRegime(regimeState, regimeSignals, regimeCfg);
+      benchmarkHistory = [...benchmarkHistory, { atIso: bnbQuote.lastUpdated, priceUsd: bnbPrice }].slice(-288);
+      saveBenchmarkHistory(benchmarkHistory);
       regimeState = regime.state;
       regimeRed = regime.blocksEntries;
       saveRegimeState(regimeState);
@@ -800,6 +997,10 @@ async function main(): Promise<void> {
         score: regime.score,
         blocksEntries: regime.blocksEntries,
         benchmarkChange24hPct: bnbChange,
+        benchmarkShortChangePct: bnbQuote.percentChange1h,
+        btcChange24hPct: btcQuote.percentChange24h,
+        benchmarkAboveRecentMean: bnbPrice >= recentMean,
+        volatilityRatio,
         fearGreed: fg.data.value,
         breadthUpFraction,
         reason: regime.reason,
@@ -821,17 +1022,20 @@ async function main(): Promise<void> {
         calibration,
         allowlist: loaded.allowlist,
         twakPolicy,
-        portfolioUsd: config.startingCapitalUsd,
-        deployableUsd: config.startingCapitalUsd - config.gasReserveUsd,
+        portfolioUsd: walletValueUsd,
+        deployableUsd: Math.max(0, book.walletCashUsd - config.gasReserveUsd),
         windowDrawdownPct: 0,
         dailyDrawdownPct: 0,
         openPositions: openPositions.length,
-        tradesToday: 0,
+        tradesToday: entriesOnUtcDay(weekLedger, new Date().toISOString()),
         survivalMode: false,
         marketDataStale: false,
         calibrationStale: mode === "dry",
         sizeMultiplier: weekBudget.sizeMultiplier,
         riskState: weekBudget.state,
+        minimumScore: weekBudget.minimumScore,
+        netEdgeBonusBps: weekBudget.netEdgeBonusBps,
+        pressTrade: weekBudget.pressTrade,
         marketRegime: regimeState.current,
         // Once real fills are measured, the wallet floor + dust gate use the MEASURED
         // round-trip; until then ctx leaves it undefined so the pipeline falls back to
@@ -1001,10 +1205,77 @@ async function main(): Promise<void> {
         evaluated.push({ result, token: spec.token, tools: spec.tools, ts: spec.quote.lastUpdated, price: spec.quote.priceUsd, atrPct });
       }
 
-      // Rank approved candidates; the top one is the trade for this cycle.
-      const winner = evaluated
+      // Rank approved candidates, then let the scheduler decide whether to attack,
+      // hold, or use the last-resort stable-to-stable compliance scout.
+      let winner = evaluated
         .filter((e) => e.result.approved)
         .sort((a, b) => b.result.score - a.result.score)[0];
+      const now = new Date();
+      const hoursLeftInDay =
+        (Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1) - now.getTime()) / 3_600_000;
+      const schedule = decideTradePlan(
+        {
+          tradesToday: legsOnUtcDay(weekLedger, now.toISOString()),
+          tradesThisWeek: weekLedger.legs.length,
+          hoursLeftInDay,
+          survivalMode: false,
+          haveEdgeCandidate: Boolean(winner),
+          safeToScout: openPositions.length === 0 && book.walletCashUsd >= config.microScoutUsd,
+        },
+        config,
+      );
+      if (schedule.dailyTradeAtRisk) {
+        await sendAlert(process.env.ALERT_WEBHOOK_URL, {
+          reason: "daily_trade_at_risk",
+          message: schedule.reason,
+          timestamp: now.toISOString(),
+        });
+      }
+      if (schedule.plan === "hold") winner = undefined;
+      if (schedule.plan === "micro_scout") {
+        const pool = await resolvePool(usdc);
+        if (pool) {
+          const scoutResult = evaluateCandidate(
+            {
+              symbol: "USDC",
+              signalFamily: "momentum",
+              scoreInputs: {
+                momentum: 0,
+                liquiditySafety: 1,
+                relativeStrengthVsBnb: 0,
+                sentiment: 0,
+                volatilitySafety: 1,
+                walletRiskState: 1,
+              },
+              cmcToolsUsed: [],
+              marketDataTimestamp: now.toISOString(),
+              tokenInAddress: usdt.bscContractAddress,
+              tokenOutAddress: usdc.bscContractAddress,
+              router: "pancakeswap",
+              spender: PANCAKE_V2_ROUTER,
+              to: PANCAKE_V2_ROUTER,
+              atrPct: 0.001,
+              reserveIn: pool.reserveIn,
+              reserveOut: pool.reserveOut,
+              poolFeeBps: 25,
+              gasPerLegUsd,
+              shadow: pool.shadow,
+              isMicroScout: true,
+            },
+            ctx,
+          );
+          const scout = {
+            result: scoutResult,
+            token: usdc,
+            tools: [] as string[],
+            ts: now.toISOString(),
+            price: 1,
+            atrPct: 0.001,
+          };
+          evaluated.push(scout);
+          winner = scoutResult.approved ? scout : undefined;
+        }
+      }
 
       let approved = 0;
       for (const e of evaluated) {
@@ -1046,35 +1317,71 @@ async function main(): Promise<void> {
               });
             } else if (outcome.receipt) {
               spentTodayUsd += e.result.economics.positionSizeUsd;
-              // Count this entry against the weekly leg budget (WS6).
-              weekLedger = recordLeg(weekLedger);
-              saveWeekLedger(weekLedger);
               mandate.execution.status = "submitted";
               mandate.execution.txHash = outcome.receipt.txHash;
               mandate.proofAnchors.bscTxHash = outcome.receipt.txHash;
               mandate.proofAnchors.twakReceipt = outcome.receipt.twakReceiptId;
-              // Open a tracked position so the fast watch loop trails it immediately.
-              const trail = initTrailingStop({
-                entryPrice: e.price,
-                atrPct: e.atrPct,
-                realRoundTripBps: e.result.economics.realRoundTripBps ?? e.result.economics.realFrictionBps,
-                config: trailConfig,
-              });
-              openPositions.push({
-                mandateId: mandate.id,
-                symbol: e.token.symbol,
-                tokenInAddress: usdt.bscContractAddress,
-                tokenOutAddress: e.token.bscContractAddress,
-                // Prefer the actual filled token amount for an accurate exit + round-trip
-                // measurement; fall back to the size/price estimate when the receipt omits it.
-                amountTokens:
-                  outcome.receipt.realizedOut ?? (e.price > 0 ? e.result.economics.positionSizeUsd / e.price : 0),
-                notionalUsd: e.result.economics.positionSizeUsd,
-                openedAtIso: new Date().toISOString(),
-                trail,
-              });
-              lastPriceMs.set(mandate.id, Date.now());
-              saveOpenPositions(openPositions);
+              const filledAt = new Date().toISOString();
+              if (e.result.signalFamily === "scout") {
+                if (typeof outcome.receipt.realizedOut !== "number") {
+                  requireManualReview({
+                    mandateId: mandate.id,
+                    txHash: outcome.receipt.txHash,
+                    action: "scout",
+                    reason: "TWAK submitted the scout without a confirmed realizedOut; do not retry",
+                  });
+                  await sendAlert(process.env.ALERT_WEBHOOK_URL, {
+                    reason: "restart_recovery",
+                    message: `Scout ${outcome.receipt.txHash} submitted without confirmed output. Trading halted for manual chain reconciliation.`,
+                    timestamp: filledAt,
+                  });
+                  await appendMandate(mandatesPath, mandate);
+                  continue;
+                }
+                book.walletCashUsd += outcome.receipt.realizedOut - e.result.economics.positionSizeUsd;
+                weekLedger = recordLeg(weekLedger, "scout", filledAt);
+              } else {
+                if (typeof outcome.receipt.realizedOut !== "number") {
+                  requireManualReview({
+                    mandateId: mandate.id,
+                    txHash: outcome.receipt.txHash,
+                    action: "entry",
+                    reason: "TWAK submitted the entry without a confirmed realizedOut; do not retry",
+                  });
+                  await sendAlert(process.env.ALERT_WEBHOOK_URL, {
+                    reason: "restart_recovery",
+                    message: `Entry ${outcome.receipt.txHash} submitted without confirmed output. Trading halted for manual chain reconciliation.`,
+                    timestamp: filledAt,
+                  });
+                  await appendMandate(mandatesPath, mandate);
+                  continue;
+                }
+                book.walletCashUsd -= e.result.economics.positionSizeUsd;
+                weekLedger = recordLeg(weekLedger, "entry", filledAt);
+                if (e.result.pressTrade) weekLedger = consumePressTrade(weekLedger);
+                // Open a tracked position so the fast watch loop trails it immediately.
+                const trail = initTrailingStop({
+                  entryPrice: e.price,
+                  atrPct: e.atrPct,
+                  realRoundTripBps: e.result.economics.realRoundTripBps ?? e.result.economics.realFrictionBps,
+                  config: trailConfig,
+                  tightMode: defendTightTrail,
+                });
+                openPositions.push({
+                  mandateId: mandate.id,
+                  symbol: e.token.symbol,
+                  tokenInAddress: usdt.bscContractAddress,
+                  tokenOutAddress: e.token.bscContractAddress,
+                  amountTokens: outcome.receipt.realizedOut,
+                  notionalUsd: e.result.economics.positionSizeUsd,
+                  openedAtIso: filledAt,
+                  trail,
+                });
+                lastPriceMs.set(mandate.id, Date.now());
+                saveOpenPositions(openPositions);
+              }
+              saveBook(book);
+              saveWeekLedger(weekLedger);
               await audit.append({
                 timestamp: new Date().toISOString(),
                 mandateId: mandate.id,
@@ -1102,7 +1409,10 @@ async function main(): Promise<void> {
       const hour = new Date().toISOString().slice(0, 13);
       if (hour !== lastSnapshotHour) {
         lastSnapshotHour = hour;
-        const holdings: Holding[] = [{ symbol: "USDT", amount: config.startingCapitalUsd, priceUsd: 1 }];
+        const holdings: Holding[] = [{ symbol: "USDT", amount: book.walletCashUsd, priceUsd: 1 }];
+        for (const pos of openPositions) {
+          holdings.push({ symbol: pos.symbol, amount: pos.amountTokens, priceUsd: await fetchTokenPriceUsd(pos) });
+        }
         const valueUsd = valueHoldings(holdings);
         const snapPath = join(AUDIT_DIR, `${runId}.snapshots.jsonl`);
         writeFileSync(snapPath, "", { flag: "a" });

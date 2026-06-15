@@ -26,6 +26,7 @@ const decision = z.object({
   regime: z.string(),
   reason: z.array(z.string()),
   rejectedReasons: z.array(z.string()).optional(),
+  pressTrade: z.boolean().optional(),
 });
 
 const economics = z.object({

@@ -9,6 +9,8 @@ import {
   loadHourlySnapshots,
   readBscEnv,
   readWalletCost,
+  readWeekBudget,
+  readRegime,
 } from "@/lib/data";
 import { DEFAULT_RISK_CONFIG } from "@wardenclaw/core";
 import { totalReturnPct, maxDrawdownPct, type HourlySnapshot } from "@wardenclaw/core";
@@ -30,6 +32,8 @@ export default function BscProof() {
   const tradeRows = mandates.filter((m) => m.risk.approved);
   const weeklyTrades = tradeRows.length;
   const walletCost = readWalletCost();
+  const week = readWeekBudget();
+  const regime = readRegime();
 
   return (
     <BscShell
@@ -60,10 +64,21 @@ export default function BscProof() {
         />
         <Stat
           label="Weekly trades"
-          value={`${weeklyTrades}/7`}
-          valueClass={weeklyTrades >= 7 ? "text-pos" : "text-ink"}
-          sub="verified minimum"
+          value={`${week?.legsUsed ?? weeklyTrades}/7`}
+          valueClass={(week?.legsUsed ?? weeklyTrades) >= 7 ? "text-pos" : "text-ink"}
+          sub="executed entry + exit legs"
         />
+      </div>
+
+      <div className="mt-3 flex flex-wrap gap-2">
+        <Badge tone={regime?.regime === "RED" ? "neg" : regime?.regime === "GREEN" ? "pos" : "neutral"}>
+          Regime {regime?.regime ?? "awaiting first cycle"}
+        </Badge>
+        <Badge tone={week?.riskState === "DEFEND" ? "warn" : week?.riskState === "PRESS" ? "pos" : "accent"}>
+          Week state {week?.riskState ?? "awaiting first cycle"}
+          {week?.pressTrade ? " · one PRESS shot active" : ""}
+        </Badge>
+        {regime?.regime === "RED" ? <span className="text-xs text-neg">Capital parked in eligible stables by design.</span> : null}
       </div>
 
       <div className="mt-3 grid gap-3 lg:grid-cols-3">

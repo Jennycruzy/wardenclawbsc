@@ -16,36 +16,61 @@ const cfg: RegimeConfig = {
   redBreadth: 0.3,
   greenBreadth: 0.6,
   hysteresisChecks: 2,
+  highVolatilityRatio: 1.5,
 };
 
-const red = { benchmarkChange24hPct: -6, fearGreed: 15, breadthUpFraction: 0.1 };
-const green = { benchmarkChange24hPct: 5, fearGreed: 75, breadthUpFraction: 0.8 };
-const neutral = { benchmarkChange24hPct: 0, fearGreed: 45, breadthUpFraction: 0.45 };
+const red = {
+  benchmarkChange24hPct: -6,
+  benchmarkShortChangePct: -2,
+  btcChange24hPct: -4,
+  benchmarkAboveRecentMean: false,
+  fearGreed: 15,
+  breadthUpFraction: 0.1,
+  volatilityRatio: 2,
+};
+const green = {
+  benchmarkChange24hPct: 5,
+  benchmarkShortChangePct: 1,
+  btcChange24hPct: 3,
+  benchmarkAboveRecentMean: true,
+  fearGreed: 75,
+  breadthUpFraction: 0.8,
+  volatilityRatio: 2,
+};
+const neutral = {
+  benchmarkChange24hPct: 0,
+  benchmarkShortChangePct: 0,
+  btcChange24hPct: 0,
+  benchmarkAboveRecentMean: true,
+  fearGreed: 45,
+  breadthUpFraction: 0.45,
+  volatilityRatio: 1,
+};
 
 describe("rawRegime — three-signal vote", () => {
   it("RED when all three signals are risk-off", () => {
-    expect(rawRegime(red, cfg)).toEqual({ regime: "RED", score: -3 });
+    expect(rawRegime(red, cfg)).toEqual({ regime: "RED", score: -5 });
   });
 
   it("RED on two of three (the third neutral)", () => {
-    const r = rawRegime({ benchmarkChange24hPct: -6, fearGreed: 45, breadthUpFraction: 0.1 }, cfg);
-    expect(r).toEqual({ regime: "RED", score: -2 });
+    const r = rawRegime({ ...red, fearGreed: 45, volatilityRatio: 1 }, cfg);
+    expect(r).toEqual({ regime: "RED", score: -3 });
   });
 
   it("NEUTRAL when only one signal is risk-off", () => {
-    const r = rawRegime({ benchmarkChange24hPct: -6, fearGreed: 45, breadthUpFraction: 0.45 }, cfg);
+    const r = rawRegime({ ...neutral, benchmarkChange24hPct: -6 }, cfg);
     expect(r.regime).toBe("NEUTRAL");
-    expect(r.score).toBe(-1);
+    expect(r.score).toBe(0);
   });
 
   it("GREEN when all three are risk-on", () => {
-    expect(rawRegime(green, cfg)).toEqual({ regime: "GREEN", score: 3 });
+    expect(rawRegime(green, cfg)).toEqual({ regime: "GREEN", score: 5 });
   });
 
   it("NEUTRAL when bullish and bearish signals offset", () => {
-    const r = rawRegime({ benchmarkChange24hPct: 5, fearGreed: 15, breadthUpFraction: 0.45 }, cfg);
+    const r = rawRegime({ ...neutral, fearGreed: 15 }, cfg);
     expect(r.regime).toBe("NEUTRAL");
-    expect(r.score).toBe(0);
+    expect(r.score).toBe(-1);
   });
 });
 

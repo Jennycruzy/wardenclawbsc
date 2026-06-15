@@ -36,6 +36,18 @@ this design.
 Evidence: `packages/cmc-adapter/*`, `buildMomentumInputs`/`buildCatalystInputs`,
 `scripts/build-eligible-tokens.ts`.
 
+## Main-demo strategy story
+
+The proof page shows a deterministic analyst, not a generic bot:
+
+- RED breadth parks capital in eligible stables.
+- HUNT scans from hour one at the normal threshold.
+- A flat day 6 unlocks exactly one pre-committed PRESS entry, then reverts.
+- A lead above +8% switches to DEFEND, raises entry/net-edge requirements, and
+  tightens the trailing stop.
+- Scored and Wallet Ledgers remain side by side so judges see both tournament
+  economics and real-capital protection.
+
 ## Best Use of BNB AI Agent SDK
 
 - Orchestration graph: ConstitutionCompiler → CMCSignal → TradeScoring → RiskGuard

@@ -14,6 +14,7 @@ import {
   type AuditEvent,
   type MandateReplay,
   type SignalMandate,
+  COMPETITION,
 } from "@wardenclaw/core";
 
 /** Walk up from cwd to find the monorepo root (where pnpm-workspace.yaml lives). */
@@ -156,6 +157,11 @@ export interface WeekBudgetSnapshot {
   lastBeatIso: string;
   riskState: "HUNT" | "PRESS" | "DEFEND";
   sizeMultiplier: number;
+  minimumScore: number;
+  netEdgeBonusBps: number;
+  pressTrade: boolean;
+  pressTradeUsed: boolean;
+  tightTrail: boolean;
   weekReturnPct: number;
   weekElapsedPct: number;
   legsUsed: number;
@@ -183,6 +189,10 @@ export interface RegimeSnapshot {
   score: number;
   blocksEntries: boolean;
   benchmarkChange24hPct: number;
+  benchmarkShortChangePct: number;
+  btcChange24hPct: number;
+  benchmarkAboveRecentMean: boolean;
+  volatilityRatio: number;
   fearGreed: number;
   breadthUpFraction: number;
   reason: string;
@@ -224,6 +234,68 @@ export function readWalletCost(): WalletCostSnapshot | null {
   } catch {
     return null;
   }
+}
+
+// ---- Competition preflight / countdown (WS9) ------------------------------
+
+export interface CompetitionCountdown {
+  phase: "preflight" | "live" | "closed";
+  targetIso: string;
+  remainingMs: number;
+  label: string;
+}
+
+export function competitionCountdown(nowMs = Date.now()): CompetitionCountdown {
+  const startMs = Date.parse(COMPETITION.tradingWindow.startUtc);
+  const endMs = Date.parse(COMPETITION.tradingWindow.endUtc);
+  if (nowMs < startMs) {
+    return {
+      phase: "preflight",
+      targetIso: COMPETITION.tradingWindow.startUtc,
+      remainingMs: startMs - nowMs,
+      label: "until trading opens and registration closes",
+    };
+  }
+  if (nowMs <= endMs) {
+    return {
+      phase: "live",
+      targetIso: COMPETITION.tradingWindow.endUtc,
+      remainingMs: endMs - nowMs,
+      label: "remaining in the live window",
+    };
+  }
+  return { phase: "closed", targetIso: COMPETITION.tradingWindow.endUtc, remainingMs: 0, label: "window closed" };
+}
+
+export interface PreflightStatus {
+  eligibleTokensBuilt: boolean;
+  registered: boolean;
+  walletConfigured: boolean;
+  rehearsalPassed: boolean;
+  calibrationPresent: boolean;
+  alertsConfigured: boolean;
+  killSwitchConfigured: boolean;
+}
+
+export function readPreflightStatus(): PreflightStatus {
+  let rehearsalPassed = false;
+  const rehearsal = join(RUNTIME_DIR, "rehearsal.json");
+  if (existsSync(rehearsal)) {
+    try {
+      rehearsalPassed = Boolean((JSON.parse(readFileSync(rehearsal, "utf8")) as { passed?: boolean }).passed);
+    } catch {
+      rehearsalPassed = false;
+    }
+  }
+  return {
+    eligibleTokensBuilt: existsSync(join(ROOT, process.env.ELIGIBLE_TOKENS_PATH ?? "data/eligible-tokens.json")),
+    registered: Boolean(process.env.REGISTRATION_TX_HASH),
+    walletConfigured: Boolean(process.env.TWAK_AGENT_WALLET),
+    rehearsalPassed,
+    calibrationPresent: existsSync(join(ROOT, "data", "calibration.json")),
+    alertsConfigured: Boolean(process.env.ALERT_WEBHOOK_URL),
+    killSwitchConfigured: Boolean(process.env.KILL_SWITCH_TOKEN),
+  };
 }
 
 // ---- Environment / mode readouts -----------------------------------------

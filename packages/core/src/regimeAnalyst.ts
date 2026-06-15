@@ -21,10 +21,18 @@ export type Regime = "GREEN" | "NEUTRAL" | "RED";
 export interface RegimeSignals {
   /** Benchmark (BNB / eligible-majors) 24h change, percent. */
   benchmarkChange24hPct: number;
+  /** Short-horizon benchmark change from CMC (currently 1h). */
+  benchmarkShortChangePct: number;
+  /** BTC 24h change for cross-market confirmation. */
+  btcChange24hPct: number;
+  /** Current benchmark price relative to its recent decision-cycle mean. */
+  benchmarkAboveRecentMean: boolean;
   /** CMC Fear & Greed index, 0..100. */
   fearGreed: number;
   /** Fraction of tracked majors with positive 24h change, [0,1]. */
   breadthUpFraction: number;
+  /** Benchmark short-horizon absolute move divided by the majors baseline. */
+  volatilityRatio: number;
 }
 
 export interface RegimeConfig {
@@ -42,6 +50,8 @@ export interface RegimeConfig {
   greenBreadth: number;
   /** Consecutive confirming raw reads required to switch the committed regime. */
   hysteresisChecks: number;
+  /** Ratio at/above which volatility is considered elevated. */
+  highVolatilityRatio: number;
 }
 
 export interface RegimeState {
@@ -77,16 +87,30 @@ export function initRegimeState(): RegimeState {
   return { current: "NEUTRAL", pendingRaw: "NEUTRAL", pendingCount: 0 };
 }
 
-/** Vote the three signals into a raw regime. A directional regime needs ≥2 of 3. */
+/** Weighted analyst: benchmark/BTC trend, breadth, sentiment, and volatility. */
 export function rawRegime(signals: RegimeSignals, cfg: RegimeConfig): { regime: Regime; score: number } {
   let score = 0;
-  if (signals.benchmarkChange24hPct <= cfg.redBenchmarkPct) score -= 1;
-  else if (signals.benchmarkChange24hPct >= cfg.greenBenchmarkPct) score += 1;
+  const bearishTrend =
+    signals.benchmarkChange24hPct <= cfg.redBenchmarkPct &&
+    signals.btcChange24hPct < 0 &&
+    signals.benchmarkShortChangePct < 0 &&
+    !signals.benchmarkAboveRecentMean;
+  const bullishTrend =
+    signals.benchmarkChange24hPct >= cfg.greenBenchmarkPct &&
+    signals.btcChange24hPct > 0 &&
+    signals.benchmarkShortChangePct > 0 &&
+    signals.benchmarkAboveRecentMean;
+  if (bearishTrend) score -= 2;
+  else if (bullishTrend) score += 2;
   if (signals.fearGreed <= cfg.redFearGreed) score -= 1;
   else if (signals.fearGreed >= cfg.greenFearGreed) score += 1;
   if (signals.breadthUpFraction <= cfg.redBreadth) score -= 1;
   else if (signals.breadthUpFraction >= cfg.greenBreadth) score += 1;
-  const regime: Regime = score <= -2 ? "RED" : score >= 2 ? "GREEN" : "NEUTRAL";
+  if (signals.volatilityRatio >= cfg.highVolatilityRatio) {
+    if (signals.benchmarkShortChangePct < 0) score -= 1;
+    else if (signals.benchmarkShortChangePct > 0) score += 1;
+  }
+  const regime: Regime = score <= -3 ? "RED" : score >= 3 ? "GREEN" : "NEUTRAL";
   return { regime, score };
 }
 

@@ -14,13 +14,52 @@ export type AlertReason =
   | "restart_recovery"
   | "daily_trade_at_risk"
   | "drawdown_soft"
-  | "emergency_stop";
+  | "emergency_stop"
+  | "registration_missing";
 
 export interface Alert {
   reason: AlertReason;
   message: string;
   timestamp: string;
   data?: Record<string, unknown>;
+}
+
+export interface RegistrationAlertState {
+  severity: "none" | "warning" | "urgent" | "critical";
+  cadenceMs: number;
+  message: string;
+}
+
+/** Registration reminders become louder and more frequent as the window nears. */
+export function registrationAlertState(
+  nowMs: number,
+  registered: boolean,
+  windowStartMs: number,
+  escalationMs: number,
+): RegistrationAlertState {
+  if (registered || nowMs >= windowStartMs) {
+    return { severity: "none", cadenceMs: Number.POSITIVE_INFINITY, message: "registration complete or closed" };
+  }
+  const remainingMs = windowStartMs - nowMs;
+  if (remainingMs <= 24 * 60 * 60 * 1000) {
+    return {
+      severity: "critical",
+      cadenceMs: 60 * 60 * 1000,
+      message: "Registration closes in under 24 hours. Run `twak compete register` now and set REGISTRATION_TX_HASH.",
+    };
+  }
+  if (nowMs >= escalationMs) {
+    return {
+      severity: "urgent",
+      cadenceMs: 6 * 60 * 60 * 1000,
+      message: "Registration is still missing after June 18. Run `twak compete register` and record REGISTRATION_TX_HASH.",
+    };
+  }
+  return {
+    severity: "warning",
+    cadenceMs: 24 * 60 * 60 * 1000,
+    message: "Competition registration is pending. Run `twak compete register` first and set REGISTRATION_TX_HASH.",
+  };
 }
 
 export function formatAlert(alert: Alert): string {

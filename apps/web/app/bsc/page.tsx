@@ -3,7 +3,7 @@ import { BscShell } from "@/components/bscShell";
 import { Card, Stat, SectionTitle, Badge, Dot, EmptyState } from "@/components/ui";
 import { SignalFamilyChip, ExecutionStatusChip } from "@/components/chips";
 import { RejectionBars } from "@/components/charts";
-import { loadBscMandates, computeBscProof, readBscEnv } from "@/lib/data";
+import { loadBscMandates, computeBscProof, readBscEnv, readRegime, readWeekBudget } from "@/lib/data";
 import { num, timeAgo, shortTime } from "@/lib/format";
 import { DEFAULT_RISK_CONFIG } from "@wardenclaw/core";
 import { STARTER_STABLES, STARTER_MAJORS } from "@wardenclaw/bsc-adapter";
@@ -15,6 +15,8 @@ export default function BscOverview() {
   const proof = computeBscProof(mandates);
   const env = readBscEnv();
   const cfg = DEFAULT_RISK_CONFIG;
+  const regime = readRegime();
+  const week = readWeekBudget();
   const recent = mandates.slice(0, 8);
 
   return (
@@ -26,6 +28,12 @@ export default function BscOverview() {
           <Badge tone="pos"><Dot tone="pos" /> spot-only · ${env.startingCapitalUsd}</Badge>
           <Badge tone={env.cmcConfigured ? "pos" : "warn"}>CMC {env.cmcConfigured ? "live" : "not set"}</Badge>
           <Badge tone={env.twakConfigured ? "pos" : "warn"}>TWAK {env.twakConfigured ? "ready" : "not set"}</Badge>
+          <Badge tone={regime?.regime === "RED" ? "neg" : regime?.regime === "GREEN" ? "pos" : "neutral"}>
+            {regime?.regime ?? "regime pending"}
+          </Badge>
+          <Badge tone={week?.riskState === "DEFEND" ? "warn" : week?.riskState === "PRESS" ? "pos" : "accent"}>
+            {week?.riskState ?? "week state pending"}
+          </Badge>
         </div>
       }
     >

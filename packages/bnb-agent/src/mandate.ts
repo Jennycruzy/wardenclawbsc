@@ -56,6 +56,7 @@ export function buildBscMandate(input: MandateBuildInput): SignalMandate {
       regime: r.mode,
       reason: r.reasons,
       rejectedReasons: r.rejectCode ? [r.rejectCode] : undefined,
+      pressTrade: r.pressTrade,
     },
     economics: {
       frictionBps: r.economics.frictionBps,

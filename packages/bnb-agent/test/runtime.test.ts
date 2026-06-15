@@ -1,5 +1,12 @@
 import { describe, it, expect } from "vitest";
-import { KillSwitch, Heartbeat, sendAlert, formatAlert, type FetchLike } from "../src/index.js";
+import {
+  KillSwitch,
+  Heartbeat,
+  sendAlert,
+  formatAlert,
+  registrationAlertState,
+  type FetchLike,
+} from "../src/index.js";
 
 describe("KillSwitch", () => {
   it("authenticates only the correct token", () => {
@@ -62,5 +69,27 @@ describe("alerts", () => {
   it("reports when no webhook is configured", async () => {
     const r = await sendAlert(undefined, { reason: "restart_recovery", message: "x", timestamp: "t" });
     expect(r.delivered).toBe(false);
+  });
+});
+
+describe("registration alert escalation", () => {
+  const open = Date.parse("2026-06-22T00:00:00Z");
+  const escalate = Date.parse("2026-06-18T00:00:00Z");
+
+  it("alerts daily before June 18", () => {
+    const r = registrationAlertState(Date.parse("2026-06-15T00:00:00Z"), false, open, escalate);
+    expect(r.severity).toBe("warning");
+    expect(r.cadenceMs).toBe(24 * 60 * 60 * 1000);
+  });
+
+  it("escalates to six-hour reminders after June 18", () => {
+    const r = registrationAlertState(Date.parse("2026-06-19T00:00:00Z"), false, open, escalate);
+    expect(r.severity).toBe("urgent");
+    expect(r.cadenceMs).toBe(6 * 60 * 60 * 1000);
+  });
+
+  it("goes hourly in the final 24 hours and stops once registered", () => {
+    expect(registrationAlertState(Date.parse("2026-06-21T12:00:00Z"), false, open, escalate).severity).toBe("critical");
+    expect(registrationAlertState(Date.parse("2026-06-21T12:00:00Z"), true, open, escalate).severity).toBe("none");
   });
 });

@@ -42,13 +42,14 @@ export interface RiskConfig {
 
   // Week-schedule risk budget (HUNT/PRESS/DEFEND, leg-counting, win-first sizing)
   weeklyLegBudget: number;
-  pressThresholdPct: number;
-  defendThresholdPct: number;
-  lockInReturnPct: number;
-  maxGiveBackPct: number;
-  pressSizeMultiplier: number;
-  defendSizeMultiplier: number;
-  lateWeekFraction: number;
+  flatBandLoPct: number;
+  flatBandHiPct: number;
+  defendTriggerPct: number;
+  huntMinScore: number;
+  pressMinScore: number;
+  defendMinScore: number;
+  netEdgeDefendBonusBps: number;
+  pressStartDay: number;
 
   // Red-day regime analyst (GREEN/NEUTRAL/RED with hysteresis)
   redBenchmarkPct: number;
@@ -58,6 +59,7 @@ export interface RiskConfig {
   redBreadth: number;
   greenBreadth: number;
   regimeHysteresisChecks: number;
+  regimeHighVolatilityRatio: number;
 
   // Drawdown / survival — three layers
   competitionDqDrawdownPct: number; // disqualifier; 30% indicative, confirm with organizer
@@ -114,13 +116,14 @@ export const DEFAULT_RISK_CONFIG: RiskConfig = {
   maxTradesPerDay: 3,
 
   weeklyLegBudget: 14,
-  pressThresholdPct: 8,
-  defendThresholdPct: -3,
-  lockInReturnPct: 25,
-  maxGiveBackPct: 5,
-  pressSizeMultiplier: 1.3,
-  defendSizeMultiplier: 0.5,
-  lateWeekFraction: 0.7,
+  flatBandLoPct: -2,
+  flatBandHiPct: 3,
+  defendTriggerPct: 8,
+  huntMinScore: 80,
+  pressMinScore: 65,
+  defendMinScore: 90,
+  netEdgeDefendBonusBps: 50,
+  pressStartDay: 6,
 
   redBenchmarkPct: -4,
   greenBenchmarkPct: 2,
@@ -129,6 +132,7 @@ export const DEFAULT_RISK_CONFIG: RiskConfig = {
   redBreadth: 0.3,
   greenBreadth: 0.6,
   regimeHysteresisChecks: 2,
+  regimeHighVolatilityRatio: 1.5,
 
   competitionDqDrawdownPct: 30,
   internalWindowDrawdownPct: 15,
@@ -222,13 +226,14 @@ export function loadRiskConfig(env: Record<string, string | undefined> = {}): Ri
     maxTradesPerDay: num("MAX_TRADES_PER_DAY", d.maxTradesPerDay),
 
     weeklyLegBudget: num("WEEKLY_LEG_BUDGET", d.weeklyLegBudget),
-    pressThresholdPct: num("PRESS_THRESHOLD_PCT", d.pressThresholdPct),
-    defendThresholdPct: num("DEFEND_THRESHOLD_PCT", d.defendThresholdPct),
-    lockInReturnPct: num("LOCK_IN_RETURN_PCT", d.lockInReturnPct),
-    maxGiveBackPct: num("MAX_GIVE_BACK_PCT", d.maxGiveBackPct),
-    pressSizeMultiplier: num("PRESS_SIZE_MULTIPLIER", d.pressSizeMultiplier),
-    defendSizeMultiplier: num("DEFEND_SIZE_MULTIPLIER", d.defendSizeMultiplier),
-    lateWeekFraction: num("LATE_WEEK_FRACTION", d.lateWeekFraction),
+    flatBandLoPct: num("FLAT_BAND_LO_PCT", d.flatBandLoPct),
+    flatBandHiPct: num("FLAT_BAND_HI_PCT", d.flatBandHiPct),
+    defendTriggerPct: num("DEFEND_TRIGGER_PCT", d.defendTriggerPct),
+    huntMinScore: num("HUNT_MIN_SCORE", d.huntMinScore),
+    pressMinScore: num("PRESS_MIN_SCORE", d.pressMinScore),
+    defendMinScore: num("DEFEND_MIN_SCORE", d.defendMinScore),
+    netEdgeDefendBonusBps: num("NET_EDGE_DEFEND_BONUS_BPS", d.netEdgeDefendBonusBps),
+    pressStartDay: num("PRESS_START_DAY", d.pressStartDay),
 
     redBenchmarkPct: num("RED_BENCHMARK_PCT", d.redBenchmarkPct),
     greenBenchmarkPct: num("GREEN_BENCHMARK_PCT", d.greenBenchmarkPct),
@@ -237,6 +242,7 @@ export function loadRiskConfig(env: Record<string, string | undefined> = {}): Ri
     redBreadth: num("RED_BREADTH", d.redBreadth),
     greenBreadth: num("GREEN_BREADTH", d.greenBreadth),
     regimeHysteresisChecks: num("REGIME_HYSTERESIS_CHECKS", d.regimeHysteresisChecks),
+    regimeHighVolatilityRatio: num("REGIME_HIGH_VOLATILITY_RATIO", d.regimeHighVolatilityRatio),
 
     competitionDqDrawdownPct: num("COMPETITION_DQ_DRAWDOWN_PCT", d.competitionDqDrawdownPct),
     internalWindowDrawdownPct: num("INTERNAL_WINDOW_DRAWDOWN_PCT", d.internalWindowDrawdownPct),

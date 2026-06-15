@@ -16,7 +16,8 @@ import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { config as loadDotenv } from "dotenv";
 import Fastify from "fastify";
-import { KillSwitch, sendAlert } from "@wardenclaw/bnb-agent";
+import { KillSwitch, registrationAlertState, sendAlert } from "@wardenclaw/bnb-agent";
+import { COMPETITION } from "@wardenclaw/core";
 import { readHeartbeat, writeKillFlag, readKillFlag } from "./state.js";
 
 // Load the monorepo-root .env regardless of the process cwd (pnpm runs the
@@ -39,6 +40,24 @@ const HEARTBEAT_INTERVAL_MS = Number(process.env.HEARTBEAT_INTERVAL_SECONDS ?? "
 const killSwitch = new KillSwitch(process.env.KILL_SWITCH_TOKEN);
 
 const app = Fastify({ logger: { level: process.env.LOG_LEVEL ?? "info" } });
+let lastRegistrationAlertMs = 0;
+
+async function checkRegistrationReminder(): Promise<void> {
+  const nowMs = Date.now();
+  const reminder = registrationAlertState(
+    nowMs,
+    Boolean(process.env.REGISTRATION_TX_HASH),
+    Date.parse(COMPETITION.tradingWindow.startUtc),
+    Date.parse("2026-06-18T00:00:00Z"),
+  );
+  if (reminder.severity === "none" || nowMs - lastRegistrationAlertMs < reminder.cadenceMs) return;
+  const delivery = await sendAlert(process.env.ALERT_WEBHOOK_URL, {
+    reason: "registration_missing",
+    message: `[${reminder.severity.toUpperCase()}] ${reminder.message}`,
+    timestamp: new Date(nowMs).toISOString(),
+  });
+  if (delivery.delivered) lastRegistrationAlertMs = nowMs;
+}
 
 function heartbeatStale(): boolean {
   const hb = readHeartbeat();
@@ -101,7 +120,12 @@ app.post("/alert/test", async (req, reply) => {
 
 app
   .listen({ port: PORT, host: "0.0.0.0" })
-  .then(() => app.log.info(`WARDENCLAW API listening on :${PORT}`))
+  .then(() => {
+    app.log.info(`WARDENCLAW API listening on :${PORT}`);
+    void checkRegistrationReminder();
+    const timer = setInterval(() => void checkRegistrationReminder(), 15 * 60 * 1000);
+    timer.unref();
+  })
   .catch((err) => {
     app.log.error(err);
     process.exit(1);

@@ -1,82 +1,82 @@
-# Operations Runbook (VPS, live window June 22–28)
+# Operations Runbook
 
-The agent runs unattended for 7 days. Ops failures lose the competition as surely
-as bad trades — a crashed agent also misses the verified 1-trade/day minimum.
+The live window is June 22, 2026 00:00 UTC through June 28, 2026 23:59:59 UTC.
+Registration closes when the window opens.
+
+## First action
+
+Run `twak compete register`, verify the BSC transaction, and set
+`REGISTRATION_TX_HASH`. Until it is set, the webhook alerts daily, every 6 hours
+after June 18, and hourly in the final 24 hours. `/bsc/ops` shows the countdown
+and ordered preflight checklist.
 
 ## Processes
 
-Two processes under pm2 (`ops/pm2.config.cjs`):
-- **wardenclaw-worker** — the trading loop (perception → gates → execute → snapshot).
-- **wardenclaw-api** — the phone-reachable control surface (health + kill-switch).
+`wardenclaw-web` and `wardenclaw-api` run continuously. Start
+`wardenclaw-worker` for rehearsal/live only after the rehearsal gate passes.
+On every worker start, reconciliation runs before any new trade.
 
 ```bash
 pnpm install
+pnpm build
 pm2 start ops/pm2.config.cjs
-pm2 save && pm2 startup      # start on reboot
-pm2 logs wardenclaw-worker     # follow the loop
-pm2 restart wardenclaw-worker  # manual restart (recovery runs automatically)
+pm2 save
+pm2 logs wardenclaw-worker
 ```
 
-Both auto-restart with backoff. On every start the worker runs **crash-recovery
-reconciliation BEFORE any trade**: it reconciles pending/in-flight txs against
-chain state, resolves submitted-but-unconfirmed txs by checking the chain (never
-blind re-submission), checks nonce reuse, and writes a `RECOVERY_REPORT` audit
-event. No duplicate trades, ever.
+Required live environment:
 
-## Required environment (live)
-
-```
-CMC_API_KEY=…            # real perception (worker fails loud without it)
-TWAK_CONFIG_PATH=…       # the sole signer; enables live mode
-BSC_RPC_URLS=u1,u2,u3    # failover pool
-ALERT_WEBHOOK_URL=…      # phone alerts
-KILL_SWITCH_TOKEN=…      # authenticated emergency stop
+```text
+CMC_API_KEY
+TWAK_CONFIG_PATH
+TWAK_AGENT_WALLET
+BSC_RPC_URLS
+ALERT_WEBHOOK_URL
+KILL_SWITCH_TOKEN
+REGISTRATION_TX_HASH
 ```
 
-Run `pnpm verify:integrations -- --live` — it exits non-zero if any required live
-integration is missing.
+## Protection loop
 
-## The emergency stop (STOP TRADING NOW)
+The position watch runs every `POSITION_WATCH_INTERVAL_SECONDS` only while a
+position is open. It performs direct BSC quoter reads, persists HWM/stop state,
+uses the tight trail in RED or DEFEND, and sends forced exits through TWAK. If
+prices are stale past `WATCH_STALENESS_LIMIT_SECONDS`, it alerts immediately.
 
-From a phone browser or terminal:
+`data/runtime/book.json` stores actual stable cash and scored competition value.
+`weekLedger.json` stores timestamped entry/exit/scout legs and whether the single
+PRESS trade was consumed. Both restore before new entries.
+
+If TWAK broadcasts a transaction before a confirmed `realizedOut` is available,
+the worker writes `data/runtime/manual-review.json` and halts all entry/watch
+execution. Resolve that tx from chain evidence and reconcile the book/position
+before removing the flag. This prevents blind resubmission.
+
+## Emergency stop
 
 ```bash
-curl -X POST $NEXT_PUBLIC_API_URL/kill -H "authorization: Bearer $KILL_SWITCH_TOKEN"
+curl -X POST $NEXT_PUBLIC_API_URL/kill \
+  -H "authorization: Bearer $KILL_SWITCH_TOKEN"
 ```
 
-This writes a kill flag the worker honors on its next cycle: it halts new entries,
-would cancel pending intents, and attempts approval revocation, then alerts. Check
-state at `GET /health` or the `/bsc/ops` dashboard page.
+Restart only after reviewing the kill reason, pending transactions, and
+`RECOVERY_REPORT`.
 
-## Alerts (to your phone)
+## Phone alerts
 
-`ALERT_WEBHOOK_URL` receives: survival-mode entry, execution failure, TWAK refusal,
-restart/recovery, **daily-trade-at-risk** (hours before day end with 0 trades),
-drawdown soft-threshold breach, and emergency stop. Alert delivery never throws —
-a failed alert cannot crash the loop. Test it: `POST /alert/test` (Bearer token).
+- `registration_missing`: register and set the tx hash immediately.
+- `restart_recovery`: inspect reconciliation; never blindly resubmit.
+- `daily_trade_at_risk`: the scout runs only if flat and safe.
+- `execution_failure`: inspect worker logs, RPCs, TWAK, and funds.
+- `twak_refusal`: inspect the policy reject code.
+- `survival_mode` / `drawdown_soft`: verify de-risking on `/bsc/proof`.
+- `emergency_stop`: keep the worker stopped until reviewed.
 
-## Responding to each alert
+Alert delivery never crashes the trading loop.
 
-| Alert | Action |
-|---|---|
-| `restart_recovery` (requires review) | Inspect the RECOVERY_REPORT; do not resubmit pending txs — resolve from chain. |
-| `daily_trade_at_risk` | The agent will run a stable↔stable Micro-Scout if safe; if it held (unsafe), decide whether to intervene. |
-| `survival_mode` / `drawdown_soft` | The governor is de-risking automatically. Verify on `/bsc/proof`. |
-| `execution_failure` | Check `pm2 logs`; the loop continues. If persistent (e.g. RPC), check `BSC_RPC_URLS`. |
-| `twak_refusal` | Expected when a bad intent was blocked; confirm it was not a mis-config. |
-| `emergency_stop` | You (or a watchdog) engaged the kill-switch. Restart only after review. |
+## Audit
 
-## Heartbeat & RPC failover
-
-The worker writes a heartbeat each cycle (`data/runtime/heartbeat.json`); a stale
-heartbeat (3× the interval) means the process manager should restart it — an alert
-fires. The RPC manager probes its pool and fails over automatically; it throws
-rather than hangs when the whole pool is down.
-
-## Reading logs and audit
-
-- `pm2 logs` — live process output.
-- `data/audit/*.jsonl` — hash-chained per-stage events. Replay one:
-  `pnpm replay --mandate <id>`.
-- `data/audit/*.mandates.jsonl` — full mandates rendered on the dashboard.
-- `data/audit/*.snapshots.jsonl` — hourly portfolio values (mirror the scoring).
+- `/bsc/ops`: countdown, registration, health, regime, week state, measured cost.
+- `/bsc/proof`: scored return, wallet value, drawdown, legs, receipts.
+- `data/audit/*.jsonl`: hash-chained stage events.
+- `pnpm replay --mandate <id>`: deterministic replay.

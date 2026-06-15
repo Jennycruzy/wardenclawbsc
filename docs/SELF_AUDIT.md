@@ -1,145 +1,82 @@
 # Self-Audit
 
-Status: shared core + Bitget submission + BNB submission built. ~190 tests pass;
-`typecheck`, `lint`, and the Next.js build are green. Items needing a real external
-binding (TWAK SDK, CMC x402 live payment, BNB AI Agent SDK, live RPC quoter) have
-real, tested interfaces that **fail loudly** until wired — marked accordingly, not
-silently dropped.
+Status date: June 15, 2026. This audit covers the win-first upgrade on `main`.
+External actions still requiring the operator are listed in `docs/PREFLIGHT.md`;
+the code never labels them complete without real evidence.
 
-## Coverage traceability
+## Hard invariants
 
-| Spec section | Requirement | Status | Evidence |
-|---|---|---|---|
-| 0 | No fake data; fail loudly; documented env; testable core | implemented | adapters fail loud; `.env.example`; tests |
-| 0.1 | Verified competition rules captured | implemented | `competitionRules.ts`, `docs/COMPETITION_RULES.md`, `verify:competition-rules` |
-| 0.1a | Address-keyed eligible allowlist; BNB/WBNB never held | implemented | `eligibleTokens.ts`, `bsc-adapter/knownTokens.ts`, tests |
-| 0.1b | Four open items surfaced as warnings; conservative defaults authoritative | implemented | `competitionRules.ts`, `/bsc/rules` page |
-| 0.1c | TWAK prize rubric mapped | implemented | `docs/SPECIAL_PRIZES.md` (per point band) |
-| 0.2 | Deterministic configurable risk gates | implemented | `riskConstitution.ts`, `twak-adapter/policy.ts`, tests |
-| 0.3 | BSC chain + spot-router pinning | implemented | `riskConstitution.ts` + `twak policy` (chainId 56, router, spot-only), tests |
-| 0.4 | ERC-20 approval hygiene | implemented | approval gate in constitution + TWAK policy; revoke-on-stop intent in watchdog/worker |
-| 0.5 | LLM model policy + provider abstraction | implemented | `llm/*`, `docs/LLM_POLICY.md`, tests |
-| 0.6 | x402 in the trade loop | implemented | `cmc-adapter/x402.ts` — real EIP-3009 USDC-on-Base client (viem), full 402→sign→retry handshake tested; wired into the worker loop; needs a funded Base key to settle |
-| 0.7 | Audit truth policy (integrity vs anchors) | implemented | `proofAnchors.ts`, replay pages |
-| 0.8 | Micro-capital friction + net-edge + sizer | implemented | `frictionModel.ts`, `netEdgeGate.ts`, pipeline, tests |
-| 0.8a | Volatility stops + size coherence | implemented | `stopCoherence.ts`, pipeline, tests |
-| 0.9 | Three-layer governor + shadow-fill + hourly snapshot | implemented | `drawdownGovernor.ts`, `shadowFill.ts`, `hourlySnapshot.ts`, worker, tests |
-| 0.10 | Offense doctrine + calibration | implemented | two families in `cmc-adapter/perception.ts` + pipeline; `edgeCalibration.ts`, `calibrate-edge`; live calibration run needs CMC history |
-| 0.11 | Ops resilience (recovery, RPC failover, alerts, kill-switch) | implemented | `recovery.ts`, `bsc-adapter/rpc.ts`, `bnb-agent/runtime.ts`, `apps/api`, `apps/worker`, `ops/pm2.config.cjs`, tests |
-| 0.12 | Dress-rehearsal gate | implemented | `scripts/rehearsal-checklist.ts`, worker live-mode gate, `docs/PREFLIGHT.md` |
-| 0.13 | Scope tiering | implemented | MUST built first across stages |
-| 0.14 | Clean modern UI | implemented | `apps/web` Bitget + BSC dashboards (Tailwind + Recharts, responsive, empty/stale states) |
-| 1 | Signal Mandate primitive | implemented | `types.ts`, `signalMandate.ts`, tests |
-| 2 | Submission split | implemented | Bitget-only adapter; BNB-only adapters; no cross-contamination |
-| 3.1–3.9 | Core engine pieces | implemented | `packages/core/*` + tests (85) |
-| 4.x | Bitget build + dashboard | implemented | `packages/bitget-adapter` (59 tests), `/bitget/*` |
-| 4.3 | Official Bitget demo execution (priority 1) | implemented | `demoExecutor.ts` — real orders via Agent Hub MCP `--paper-trading` (verified tool surface: spot_place_order/spot_get_fills); activates only with a complete Demo Trading API key set, else falls back loudly to the labeled internal paper engine |
-| 5.1–5.4a | BSC agent, TWAK sole executor, refusal demo | implemented | `bnb-agent`, `twak-adapter` (real `CliTwakExecutor` → `@trustwallet/cli`, tested via subprocess), `scripts/demo-twak-refusal.ts` |
-| 5.x live reads | Real PancakeSwap reserves/quotes/gas (viem) | implemented | `bsc-adapter/liveQuoter.ts` — `LiveBscReader` verified against BSC mainnet (`liveQuoter.test.ts`); wired into worker + dry run |
-| 5.5 | CMC Agent Hub multi-tool + attribution | implemented | real quotes/trending/fear-greed clients + per-mandate attribution + real x402 (USDC/Base) in the loop; `cmc-adapter/*`, tests |
-| 5.6 | BNB AI Agent SDK orchestration | implemented | real Python sidecar (`apps/bnb-sdk-sidecar`, `bnbagent` ERC-8004 identity) + tested TS bridge `registerAgentIdentity`; owns no strategy logic; wired into the worker |
-| 5.8–5.12 | Two families, modes, thresholds, protections | implemented | `pipeline.ts`, `scheduler.ts`, scorer, governor |
-| 5.13–5.14 | BSC dashboard + `/bsc/proof` scoreboard | implemented | `apps/web/app/bsc/*` |
-| 6 | Tech stack / monorepo layout | implemented | `apps/{web,api,worker}` + `packages/*`; Fastify backend (not FastAPI) |
-| 7 | Environment variables documented | implemented | `.env.example`, `config.ts` |
-| 8 | Tests | implemented | core 85, bitget 38, twak 23, cmc 8, bsc 10, bnb-agent 26 |
-| 9 | Deliverables | implemented (partial on external-bound items above) | per-row evidence |
-| 10 | Demo scripts + preflight | implemented | `demo-twak-refusal`, `run-bsc-agent`, `run-bitget-paper`, `rehearsal:checklist` → `PREFLIGHT.md` |
-| 11 | README + docs | implemented | README + all `docs/*` |
-| 12 | Special prize doc | implemented | `docs/SPECIAL_PRIZES.md` |
-| 13 | Final quality bar | implemented (build-time); live execution pending real bindings | — |
-| 14 | Self-audit protocol | implemented | this document |
+- Spot-only, chain 56, PancakeSwap router, eligible contracts on both legs.
+- Native BNB is gas only; BNB/WBNB cannot be held as a position.
+- The LLM cannot score, size, approve, or execute.
+- Every entry passes deterministic score, eligibility, scored net-edge, wallet
+  floor, stop coherence, governor, shadow-fill, regime, and TWAK policy checks.
+- No fabricated prices, fills, receipts, hashes, registration, or measured costs.
 
-## Win-First upgrade (workstreams)
-
-Surgical offense/precision patch added INSIDE every existing safety gate (spot-only,
-TWAK-only, eligible-contracts-only). Each row: file + passing test as evidence.
+## Win-first workstreams
 
 | WS | Requirement | Status | Evidence |
 |---|---|---|---|
-| 1 | Two ledgers: Scored (sim cost → net-edge gate) vs Wallet (measured real round-trip → wallet floor); changing `SCORING_SIM_COST_BPS` alone retunes the gate; both on every mandate | implemented | `scoredCost.ts`, `ledgers.ts`, `netEdgeGate.ts` (scored gate + `REJECT_WALLET_FLOOR`), `riskConstitution.ts`, `pipeline.ts`/`mandate.ts`; tests: `economics.test.ts` (wallet-floor a/b), `ledgers.test.ts` (cost model c + rolling estimate), `riskGates.test.ts` (wallet floor), `pipeline.test.ts` (both ledgers on mandate d); `/bsc/proof` shows move/scored/wallet |
-| 2 | Trailing-stop ratchet: per-position HWM, initial vol stop → breakeven+fees at `BREAKEVEN_TRIGGER_ATR` → trail `TRAIL_ATR_MULTIPLE` below HWM, ratchet-up-only, tighten mode; breach = forced exit (bypasses net-edge, not slippage); HWM/stop persisted + restored on restart | implemented | `trailingStop.ts`, `positionStore.ts`, config `BREAKEVEN_TRIGGER_ATR`/`TRAIL_ATR_MULTIPLE`/`TRAIL_TIGHT_ATR_MULTIPLE`; tests `trailingStop.test.ts` (never widens a/b/c, +9%→reversal exits green d, restart-restore e, EXIT_STOP vs EXIT_TRAIL_RATCHET); net-edge bypass `economics.test.ts`, slippage always enforced `twak policy.test.ts` (f). Watch-loop firing wired in WS3 |
-| 3 | Fast position-watch loop: every `POSITION_WATCH_INTERVAL_SECONDS` while a position is open, fetch price (RPC failover), ratchet trail, fire TWAK safety exit on breach — no scoring/LLM/opens; staleness alert at `WATCH_STALENESS_LIMIT_SECONDS` (`alert_only`/`reduce`); heartbeat on `/bsc/ops`; restart resumes watching | implemented | `positionWatch.ts` (`evaluateWatchTick`), worker `runWatchLoop`/`watchAllPositions` + position restore + `writeWatchHeartbeat`; `/bsc/ops` watch card; tests `positionWatch.test.ts` (dump-exit, mid-cycle crash exits green, staleness alert, brief-miss hold, reduce action, tighten) |
-| 4 | x402 TWAK-first: worker pays via `twak x402 request` (verified surface from tw-agent-skills); viem `CmcX402Client` demoted to fallback behind `X402_FALLBACK_VIEM`, labeled `viem_fallback (non-TWAK)`; `X402_REQUIRED` blocks the dependent trade when no path is available | implemented | `CliTwakExecutor.payX402` (real CLI), `chooseX402Path`/`x402BlocksTrade`/`x402PathLabel`, worker x402 wiring + `x402Blocks` gate, mandate `x402Path` anchor, `/bsc/mandates/:id` label; tests `x402.test.ts` (path selection, fallback gating, block), `cliExecutor.test.ts` (TWAK x402 success + error envelope) |
-| 5 | Entry quality + rs_continuation: catalyst must be UNCROWDED (trending rank climbing ≥`TRENDING_DELTA_MIN` or freshly in top-`TRENDING_TOP_N`, volume ≥`VOLUME_EXPANSION_MIN`× its own baseline, never the first vertical — post-spike base for `SPIKE_COOLDOWN_CHECKS` holding above the `MAX_RETRACE_PCT` floor then continuation); new `rs_continuation` family enters on two consecutive `RS_OUTPERFORM_MIN_BPS` outperformance checks vs benchmark with rising volume; per-family calibration; all deterministic, LLM-free; restart-safe per-token history | implemented | `signalHistory.ts`, `catalystEntry.ts` (`REJECT_TRENDING_STALE`/`REJECT_NO_VOLUME_EXPANSION`/`REJECT_FIRST_SPIKE`), `rsContinuation.ts` (`REJECT_RS_NOT_CONFIRMED`), `pipeline.ts` family entry-gate, `perception.ts` `buildRsContinuationInputs`, `edgeCalibration.ts` `buildPerFamilyCalibration`, worker trending+rs+catalyst candidates with persisted `signalHistory.json`; tests: `catalystEntry.test.ts` (6), `rsContinuation.test.ts` (5), `signalHistory.test.ts` (5), `pipeline.test.ts` entry-gate cases (5), per-family calibration (`coreModules.test.ts`) |
-| 6 | Week-schedule risk budget: HUNT/PRESS/DEFEND state machine over the competition week — PRESS (size ×`PRESS_SIZE_MULTIPLIER`) when ahead (`PRESS_THRESHOLD_PCT`) with legs to spare; DEFEND (×`DEFEND_SIZE_MULTIPLIER`) when behind (`DEFEND_THRESHOLD_PCT`), giving back ≥`MAX_GIVE_BACK_PCT` from the week peak, late-week with scarce legs, OR win-first locking a lead ≥`LOCK_IN_RETURN_PCT`; `WEEKLY_LEG_BUDGET` leg-counting reserves the daily-minimum trade for each remaining day; the multiplier scales only the governor's allowed size, so `MAX_POSITION_PCT` and the volatility stop still bind (PRESS never breaches caps); deterministic + restart-safe | implemented | `weekBudget.ts` (state machine + `weekElapsedFraction`), `weekLedger.ts` (persisted return/peak/legs + `deriveWeekBudgetState`), config knobs, `pipeline.ts` multiplier on the governor cap + `riskState`/`sizeMultiplier` on the result, worker week-ledger restore + per-cycle state + leg counting on fill + `week-budget.json`, `/bsc/ops` HUNT/PRESS/DEFEND card; tests: `weekBudget.test.ts` (12), `weekLedger.test.ts` (5), `pipeline.test.ts` WS6 sizing (4: DEFEND shrinks, PRESS grows, large PRESS still capped, Micro-Scout exempt) |
-| 7 | Red-day regime analyst: GREEN/NEUTRAL/RED from a deterministic 3-signal vote (benchmark 24h change `RED/GREEN_BENCHMARK_PCT`, Fear & Greed `RED/GREEN_FEAR_GREED`, majors breadth `RED/GREEN_BREADTH`; ≥2 of 3 for a directional read) with Schmitt-style hysteresis — a switch needs `REGIME_HYSTERESIS_CHECKS` consecutive confirming reads, so one noisy cycle never flips it; committed RED blocks new directional entries (`REJECT_REGIME_RED`; stable scout + forced safety exits exempt) and the worker rotates open positions to stables (`EXIT_REGIME_RED`); LLM-free + restart-safe | implemented | `regimeAnalyst.ts` (`rawRegime` vote + `evaluateRegime` hysteresis + serialize/parse), `REJECT_REGIME_RED` gate in `riskConstitution.ts`, `EXIT_REGIME_RED` + `forceExit` on `positionWatch.ts`, config knobs, `pipeline.ts` `marketRegime` plumbing, worker regime restore + per-cycle read + RED rotation via the watch loop + transition alerts + `regime.snapshot.json`, `/bsc/ops` regime card; tests: `regimeAnalyst.test.ts` (10: vote + hysteresis commit/reset/clear + persistence), `positionWatch.test.ts` (+2: forced rotation exit, never blind-exit stale), `riskGates.test.ts` (+3: RED blocks, scout/exit exempt, GREEN/NEUTRAL pass), `pipeline.test.ts` WS7 (3) |
-| 8 | Measure/surface the real TWAK round-trip cost: each completed fill's cost is MEASURED (`measureRoundTripBps` — entry notional vs actual exit proceeds from `TwakReceipt.realizedOut`, isolated from the token's price move via the `entry×exit/entry` frictionless benchmark, plus native gas) and folded into the rolling Wallet Ledger (`RollingCost`, restart-safe); that measured cost drives the WS1 wallet floor and a now-enforced dust gate (`REJECT_DUST_TRADE` when the real round-trip exceeds `DUST_ROUND_TRIP_CEILING_BPS`; scout + safety exits exempt). Until the first real fill the pipeline uses the accurate per-candidate modeled friction; once measured, the wallet floor + dust gate run on reality. Surfaced on `/bsc/ops` + `/bsc/proof` | implemented | `ledgers.ts` (`measureRoundTripBps`, `serialize/parseRollingCost`), dust gate in `riskConstitution.ts` + `DUST_ROUND_TRIP_CEILING_BPS`, worker wallet-cost restore + per-cycle feed into `ctx.realRoundTripBps` (only once measured) + round-trip measurement on each exit fill + actual filled token amount on entry + `wallet-cost.snapshot.json`, `/bsc/ops` cost card + `/bsc/proof` ledger line; tests: `ledgers.test.ts` (+6: measure flat/price-isolated/gas/clamp/loud + persistence), `riskGates.test.ts` (+3: dust blocks, scout+exit exempt, healthy passes), `pipeline.test.ts` WS8 (3) |
-| 9 | Operations + docs | pending | — |
+| 1 | Separate Scored and Wallet Ledgers; scored cost retunable by env; both economics on mandates | implemented | `scoredCost.ts`, `ledgers.ts`, `netEdgeGate.ts`, `pipeline.ts`, `mandate.ts`; `economics.test.ts`, `ledgers.test.ts`, `pipeline.test.ts` |
+| 2 | Restart-safe HWM trailing stop, breakeven+fees, never widens, no fixed take-profit | implemented | `trailingStop.ts`, `positionStore.ts`; `trailingStop.test.ts` |
+| 3 | 45s protection-only watch loop, staleness alert, forced TWAK exit, heartbeat | implemented | `positionWatch.ts`, worker `runWatchLoop`, `/bsc/ops`; `positionWatch.test.ts` |
+| 4 | TWAK-first x402; explicit labeled viem fallback; required-payment failure blocks trade | implemented | `twak-adapter/x402.ts`, `CliTwakExecutor.payX402`, worker path selection; TWAK/CMC x402 tests |
+| 5 | Catalyst delta/volume/post-spike gate plus two-check `rs_continuation` and per-family calibration | implemented | `signalHistory.ts`, `catalystEntry.ts`, `rsContinuation.ts`, `edgeCalibration.ts`; associated tests |
+| 6 | HUNT days 1-5; exactly one day-6+ flat-band PRESS trade; +8% DEFEND; timestamped entry/exit legs; safe last-resort scout | implemented | `weekBudget.ts`, `weekLedger.ts`, worker scored book + scheduler wiring, mandate `pressTrade`; `weekBudget.test.ts`, `weekLedger.test.ts`, `pipeline.test.ts`, `scheduler.test.ts` |
+| 7 | Deterministic GREEN/NEUTRAL/RED analyst using BNB short/24h trend, BTC confirmation, recent mean, breadth, Fear & Greed, volatility, and hysteresis; RED parks risk | implemented | `regimeAnalyst.ts`, worker benchmark history, risk gate, watch-loop RED exit, dashboards; `regimeAnalyst.test.ts`, `riskGates.test.ts`, `positionWatch.test.ts` |
+| 8 | Measure real round-trip cost from fills; persist rolling estimate; wallet floor and dust gate react | implemented | `ledgers.ts`, worker `wallet-cost.json`, `/bsc/ops`, `/bsc/proof`; `ledgers.test.ts`, `riskGates.test.ts`, `pipeline.test.ts` |
+| 9 | Dated preflight countdown; registration-first checklist; reminders escalating after June 18; final docs | implemented | API registration timer, `registrationAlertState`, `/bsc/ops`, `docs/PREFLIGHT.md`, `ECONOMICS.md`, `OPERATIONS.md`, `SPECIAL_PRIZES.md`; `runtime.test.ts` |
 
-## Honesty audit (full system)
+## Seven honesty answers
 
-1. **Any fake data presented as real?** No. CMC and Bitget clients hit real APIs
-   and fail loud; the worker/agent never sign or fabricate fills in dry mode; the
-   backtests label synthetic series; paper fills are labeled simulated.
-2. **Any path where LLM output reaches execution without every gate?** No. The LLM
-   produces only validated structured objects upstream; the gate chain and TWAK
-   policy take plain numbers/addresses, never LLM flags.
-3. **Any way a tx reaches TWAK that is not a chain-56 spot swap between eligible
-   contracts via an allowlisted router?** No. Both the Risk Constitution and the
-   TWAK local policy reject non-spot, wrong-chain, off-router, off-spender,
-   ineligible-contract, and WBNB-held intents before signing (`policy.test.ts`,
-   `demo-twak-refusal`).
-4. **Any path where a private key touches the backend/DB?** No. API and worker
-   contain no signer; execution is TWAK-only. Keys are gitignored.
-5. **Can the agent duplicate a trade after a crash-restart?** No. The worker runs
-   `reconcile()` before any trade and resolves submitted-but-unconfirmed txs from
-   chain state; `recovery` is tested (`coreModules.test.ts`).
-6. **Is the allowlist keyed by contract address everywhere?** Yes — `eligibleTokens.ts`
-   and the TWAK policy assert addresses; no symbol-keyed eligibility check exists.
-7. **Can the agent hold BNB or WBNB as a position?** No — rejected
-   `REJECT_HELD_NATIVE_OR_WBNB` in both gate layers.
-8. **Are the four open items surfaced as warnings?** Yes — `/bsc/rules` and
-   `verify:competition-rules`; defaults are authoritative.
-9. **Was every integration verified from docs, failing loud otherwise?** Yes —
-   each binding was built against the official docs (verified June 2026): the CMC
-   x402 EIP-3009 flow, the `@trustwallet/cli` command surface, the `bnbagent`
-   ERC-8004 API, and PancakeSwap V2 reads. All are **real code** and fail loudly
-   without credentials/funds; the live quoter is verified against BSC mainnet.
-   `docs/DEPLOYMENT.md` lists exactly what to obtain.
-10. **Is the calibration real?** The mapping and report builder are real and
-    tested on real samples supplied by `calibrate-edge`; the worker/dry runs use a
-    clearly-labeled seed until a live calibration is produced, and live mode flags
-    a stale calibration.
-11. **Would the rehearsal checklist catch a broken TWAK pipeline / failed
-    registration?** Yes — `rehearsal:checklist` marks registration, a real swap, a
-    watchdog exit, and the kill-switch as steps that must be confirmed; the worker
-    refuses live mode unless the gate passed.
-12. **Would a replayed mandate be fully backed by anchors or labeled paper?** Yes —
-    `replayMandate` surfaces anchors and the paper-only flag; dry-run BSC mandates
-    are labeled (no tx hash) and the `/bsc/proof` ledger shows "dry run" until a
-    real tx lands.
+1. **Can any entry reach TWAK without eligibility, scored net-edge, wallet floor,
+   stop coherence, governor, shadow-fill, and regime checks?** No. The pipeline
+   produces an intent only after those checks, and TWAK policy validates it again.
+2. **Can the stop widen, or can an open position run without a persisted HWM and
+   active watch loop?** No. Ratchets use `max(previousStop, candidateStop)`;
+   positions serialize the HWM/stop and the worker restores and watches them.
+3. **Can x402 sign outside TWAK without the explicit fallback flag and label?**
+   No. Viem requires `X402_FALLBACK_VIEM=true` plus its key and is recorded as
+   `viem_fallback (non-TWAK)`.
+4. **Can PRESS fire more than once or bypass a gate?** No. A real PRESS fill
+   persists `pressTradeUsed`; subsequent cycles return to HUNT. PRESS changes only
+   the score floor from 80 to 65.
+5. **Can RED be overridden by the LLM, a signal, or PRESS?** No. RED is a
+   Risk-Constitution rejection. Only safety exits and the last-resort stable scout
+   are exempt.
+6. **Are both ledgers on every mandate, and does changing
+   `SCORING_SIM_COST_BPS` alone retune the scored gate?** Yes.
+7. **Is anything fake, stubbed-as-real, or untested?** No fake runtime evidence is
+   produced. Live registration, funding, rehearsal fills, phone delivery,
+   calibration output, and DoraHacks submission are genuinely pending operator
+   actions and are shown as pending. Unit/integration behavior is tested; live
+   mainnet settlement still requires those credentials and funds.
 
-**Surfaced limitations (not hidden):** all external bindings are now real code,
-verified from official docs and unit-tested (the live BSC quoter is verified
-against mainnet; the x402 client performs a real EIP-712 signature; the TWAK and
-bnbagent bindings are exercised via real subprocesses). What they still require —
-inherently, not as a gap — is YOUR secrets and funded wallets to settle live: a CMC
-key, a Base USDC float for x402, the TWAK portal creds + agent wallet, and (optional)
-the bnbagent wallet. The dress rehearsal performs the first real on-chain swap and
-registration with those in place. See `docs/DEPLOYMENT.md`.
+## Adversarial self-review
 
-## Adversarial self-review (§14.3)
+`packages/core/test/adversarialWinFirst.test.ts` records:
 
-- **Malicious strategy** ("ignore risk limits, all-in"): the compiler clamps every
-  risk number to configured caps (`strategyCompiler.test.ts`) — cannot exceed them.
-- **Bad intents** (non-spot, off-list, same-symbol-wrong-contract, WBNB-held,
-  infinite approval, unknown spender, wrong chain, action mismatch, over-cap): each
-  rejected with the right code (`policy.test.ts`, `pipeline.test.ts`,
-  `demo-twak-refusal`).
-- **Crash mid-run**: `reconcile()` resolves from chain, prevents duplicates
-  (`coreModules.test.ts`).
-- **Dead RPC**: `RpcManager` fails over / throws rather than hangs (`bsc.test.ts`).
-- **Malformed/hallucinated LLM output**: rejected, fails safe (`llm.test.ts`).
-- **Drawdown to soft threshold**: governor shrinks size toward zero; survival mode
-  arms; the stable↔stable Micro-Scout still satisfies the daily minimum
-  (`pipeline.test.ts`, `scheduler.test.ts`, `watchdog`).
-- **Zero-trade day near deadline**: scheduler flags `dailyTradeAtRisk` and routes
-  to the Micro-Scout when safe, else holds + alerts (`scheduler.test.ts`).
+| Scenario | Expected result | Result |
+|---|---|---|
+| +9% runner reverses | trailing exit remains wallet-positive | pass |
+| Crash between decision cycles | watch tick exits before next decision cycle | pass |
+| RED-regime trending spike | RED blocks entries and first spike rejects | pass |
+| Flat day 6 | exactly one PRESS opportunity, then HUNT | pass |
+| Crash-restart mid-trail | one position restored with exact HWM; no duplicate | pass |
+
+Additional adversarial coverage includes off-list contracts, wrong chain/router,
+non-spot intents, WBNB holding, infinite approvals, stale data, stale calibration,
+wallet-ruinous scored-positive trades, scored-negative wallet-positive trades,
+dust cost, dead RPC failover, malformed LLM output, and x402 failure.
 
 ## Gate
 
-`pnpm install && pnpm typecheck && pnpm lint && pnpm test` is green (**284 tests**,
-including a live BSC-mainnet read); `pnpm --filter @wardenclaw/web build` is green. No
-silent gaps; every integration is real code, verified from official docs and tested,
-and fails loud without credentials.
+Green on June 15, 2026:
+
+```bash
+pnpm typecheck && pnpm lint && pnpm test
+pnpm --filter @wardenclaw/web build
+```
+
+Result: typecheck green, lint green, **288 tests passed**, including the live
+BSC-mainnet reserve/quote read, and the production Next.js build green.

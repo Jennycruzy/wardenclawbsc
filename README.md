@@ -36,7 +36,7 @@ eligible-contracts-only). WS9 (ops/docs) and the final audit pass remain — see
   `apps/worker` (recovery + loop + snapshots), `apps/web` `/bsc` dashboards incl.
   the `/bsc/proof` judge scoreboard.
 
-### Win-first upgrade (branch `win-first-upgrade`)
+### Win-first upgrade
 
 Offense + precision, all inside the existing gates. Each is deterministic (the LLM
 touches none of it), restart-safe, tested, and surfaced on the dashboards:
@@ -52,13 +52,16 @@ touches none of it), restart-safe, tested, and surfaced on the dashboards:
 - **WS5 — Entry quality + `rs_continuation`**: catalyst uncrowding (trending delta,
   volume expansion, no first spike) + relative-strength continuation; per-family
   calibration; restart-safe signal history.
-- **WS6 — Week-schedule risk budget**: HUNT/PRESS/DEFEND state machine, leg-counting,
-  win-first sizing; the multiplier scales only the governor cap, never the hard caps.
+- **WS6 — Week-schedule risk budget**: HUNT on days 1-5; exactly one lowered-band
+  PRESS trade on day 6+ when still flat; DEFEND above +8% with stricter entry,
+  net-edge, and trail settings; actual entry/exit legs are persisted.
 - **WS7 — Red-day regime analyst**: GREEN/NEUTRAL/RED 3-signal vote with hysteresis;
   RED blocks new entries (`REJECT_REGIME_RED`) and rotates open risk to stables.
 - **WS8 — Measured TWAK round-trip cost**: realized cost measured from fills (isolated
   from price move), feeding the wallet floor and an enforced dust gate
   (`REJECT_DUST_TRADE`).
+- **WS9 — Preflight operations**: live countdown, registration-first checklist,
+  and webhook reminders escalating after June 18.
 
 Docs: `docs/{SETUP,COMPETITION_RULES,BITGET_SUBMISSION,BNB_SUBMISSION,SPECIAL_PRIZES,
 SAFETY,LLM_POLICY,ECONOMICS,OPERATIONS,PREFLIGHT,SELF_AUDIT}.md`. Start with
