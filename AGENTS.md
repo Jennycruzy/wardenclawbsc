@@ -3,6 +3,59 @@
 Working handoff for WARDENCLAW BSC (BNB Hack Track 1, win-first upgrade). Read this
 first when resuming.
 
+## SESSION HANDOFF — 2026-06-15 (live ops; read FIRST, for Codex to continue)
+
+Live operations were run against the VPS (`root@38.49.216.59:/root/wardenbsc`). State below.
+
+### Done & verified
+- **On-chain registration COMPLETE.** Agent wallet `0x2d854b16D6d46DBBEe1a1e4aCAfb4ed6Bba75349`
+  registered on competition contract `0x212c61b9b72c95d95bf29cf032f5e5635629aed5`, tx
+  `0x373533515876f5e7c460419816d7cb4f5bfb02ac55d276eb9d3233328e03ad53` (status 0x1, block 104452111).
+  `REGISTRATION_TX_HASH` set in VPS `.env`. **Do NOT re-register.**
+- **TWAK key rotated.** Old key `0652e53f` was registration-scoped only (swap API returned 403 from
+  every IP — proven NOT an IP issue). NEW key `6938de90…` (swap-enabled) is in VPS `.env`
+  (`TWAK_ACCESS_ID`/`TWAK_HMAC_SECRET`) and `twak auth setup`. Resolves the SAME wallet. Old key can
+  be revoked. See `memory/twak-swap-api-403-blocker.md`.
+- **eligible-tokens.json built** on the VPS (148 tokens; USDT/USDC/ETH confirmed). ETH =
+  `0x2170ed0880ac9a755fd29b2688956bd959f933f8`, USDT = `0x55d398326f99059fF775485246999027B3197955`.
+- **Live $5 ETH round-trip executed** (entry `0x44f24692…`, manual exit `0x14c8fe21…`). **Measured real
+  round-trip cost = 1.367% (≈137 bps)**, excl gas. Seeded VPS `data/runtime/wallet-cost.json` =
+  `{"bootstrapBps":136.7,"samples":[136.7],"windowSize":10}`.
+- **Routing reality:** `twak swap` aggregates the route itself — fills go via the TWAK aggregator
+  (provider **LiquidMesh**, router `0x3d90f66b534dd8482b181e24655a9e8265316be9`), NOT a direct
+  PancakeSwap-router call. `twak swap` has no venue flag. Accepted as "executed via TWAK CLI." Docs
+  updated (`BNB_SUBMISSION.md` no longer claims "PancakeSwap router only").
+- **typecheck + build green** on the VPS; `pm2 restart wardenbsc-web(19) wardenbsc-api(20)` done (new key live).
+- **#10 watchdog exit PROVEN on-chain** — the worker autonomously detected a stop breach and signed +
+  submitted a real exit swap (tx `0x37b86bcb…`, status 0x1, USDT +4.665).
+
+### 🔴 CRITICAL BUG — fix before any live run (blocks autonomous trading)
+`packages/twak-adapter/src/cliExecutor.ts` `signAndSubmit` (~line 117-124) parses the wrong fields:
+it reads `out.amountOut` (number) and `out.confirmed`, but TWAK v0.19.1 returns **`out.output`** as a
+STRING like `"4.665 USDT"` and has **no `amountOut`/`confirmed`**. So `realizedOut` is ALWAYS
+`undefined` → after EVERY live swap the worker arms `data/runtime/manual-review.json` and HALTS
+(worker.ts ~729-742), and the auto round-trip cost measurement (worker.ts ~749-762) never runs.
+**Fix:** parse the numeric prefix of `out.output`; set status "confirmed" when `out.hash` + executed.
+**Unit gotcha:** for EXITS `output` is the stable (≈USD, correct for `exitProceedsUsd`); for ENTRIES
+`output` is the bought token (token units, NOT USD) — handle accordingly. Add an adapter test. Then
+gate (typecheck+lint+test) + deploy.
+
+### Remaining rehearsal checklist (do after the bug fix)
+- **#11 hourly snapshot** — auto (worker writes `.snapshots.jsonl`); verify a real USD valuation row.
+- **#12 kill-switch** — set `KILL_SWITCH_TOKEN`; test live from phone; verify revocation.
+- **#13 restart-and-reconcile** — kill worker mid-position; verify RECOVERY_REPORT + no duplicate.
+- **#14 calibration** — `pnpm calibrate:edge` on fresh data.
+- **#15 phone alerts** — set `ALERT_WEBHOOK_URL`; confirm receipt (incl. trade-at-risk).
+- Then `pnpm rehearsal:checklist` to flip the live gate; start the worker for the window.
+
+### Housekeeping
+- Wallet now holds ≈ **40.76 USDT + ~0.00015 ETH dust + BNB (gas, reduced)**. Top up gas/stables before
+  the window per the $40 book.
+- Rotate the VPS root password, the OCI box password, and the TWAK HMAC secret (all passed through a
+  chat session). Move VPS to SSH-key-only. Revoke old TWAK key `0652e53f`.
+- A test worker was launched during #10 and force-stopped; ensure no stray `tsx src/worker.ts` process
+  is running on the VPS and that `data/runtime/positions.json` = `[]`, `manual-review.json` removed.
+
 ## Snapshot (2026-06-13)
 
 - **Branch:** `win-first-upgrade` (local + GitHub `origin` + VPS all in sync).

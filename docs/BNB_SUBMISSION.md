@@ -9,6 +9,15 @@ disqualification drawdown cap** with simulated transaction costs applied.
 > trades when measured edge clears real friction plus the competition's simulated
 > costs, and it spends a budgeted drawdown allowance on the catalysts that pay.
 
+## Live registration & agent wallet
+
+- **Agent wallet (BSC):** `0x2d854b16D6d46DBBEe1a1e4aCAfb4ed6Bba75349`
+- **Registered on-chain:** competition contract `0x212c61b9b72c95d95bf29cf032f5e5635629aed5`,
+  registration tx `0x373533515876f5e7c460419816d7cb4f5bfb02ac55d276eb9d3233328e03ad53`
+  (verified status `0x1`, block 104452111).
+- **Executor:** TWAK CLI, Access ID `6938de90…` (swap-enabled). Spot swaps confirmed live
+  on BSC mainnet (entry + watchdog-driven exit) via the TWAK CLI.
+
 ## The trade loop (every gate is deterministic)
 
 ```
@@ -24,7 +33,7 @@ strategy explanation — it can never choose a trade, size one, or bypass a gate
 
 ## Spot-only, eligible-by-contract, never hold BNB
 
-- **Spot swaps only on BSC mainnet (chainId 56), PancakeSwap router only.** No
+- **Spot swaps only on BSC mainnet (chainId 56), executed through the TWAK CLI.** No
   perps/leverage/margin — ever. Any such route is rejected `REJECT_NON_SPOT`.
 - **Eligibility is keyed by exact BEP-20 contract address**, never by symbol
   (symbols like B, M, U, BRETT have multiple contracts). Both legs of every swap
