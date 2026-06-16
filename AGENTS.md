@@ -29,16 +29,16 @@ Live operations were run against the VPS (`root@38.49.216.59:/root/wardenbsc`). 
 - **#10 watchdog exit PROVEN on-chain** — the worker autonomously detected a stop breach and signed +
   submitted a real exit swap (tx `0x37b86bcb…`, status 0x1, USDT +4.665).
 
-### 🔴 CRITICAL BUG — fix before any live run (blocks autonomous trading)
-`packages/twak-adapter/src/cliExecutor.ts` `signAndSubmit` (~line 117-124) parses the wrong fields:
-it reads `out.amountOut` (number) and `out.confirmed`, but TWAK v0.19.1 returns **`out.output`** as a
-STRING like `"4.665 USDT"` and has **no `amountOut`/`confirmed`**. So `realizedOut` is ALWAYS
-`undefined` → after EVERY live swap the worker arms `data/runtime/manual-review.json` and HALTS
-(worker.ts ~729-742), and the auto round-trip cost measurement (worker.ts ~749-762) never runs.
-**Fix:** parse the numeric prefix of `out.output`; set status "confirmed" when `out.hash` + executed.
-**Unit gotcha:** for EXITS `output` is the stable (≈USD, correct for `exitProceedsUsd`); for ENTRIES
-`output` is the bought token (token units, NOT USD) — handle accordingly. Add an adapter test. Then
-gate (typecheck+lint+test) + deploy.
+### ✅ Critical TWAK receipt bug fixed — 2026-06-16
+`packages/twak-adapter/src/cliExecutor.ts` now parses TWAK v0.19.1 `out.output` strings such as
+`"4.665 USDT"` and keeps `realizedOut` unit-agnostic: EXITS are stable proceeds, ENTRIES are bought
+token units. Hash-only swaps remain `submitted` with no fabricated output. Adapter tests cover entry
+output, exit output, and hash-only receipts.
+
+Commit `ddcbaa0` (`Parse TWAK CLI swap output receipts`) is pushed to GitHub `main` and deployed on
+the VPS. Verified green locally: `pnpm --filter @wardenclaw/twak-adapter test`, `pnpm typecheck`,
+`pnpm lint`, `pnpm test`, and `pnpm --filter @wardenclaw/web build`. VPS `pnpm install --frozen-lockfile`
+and `pnpm build` also passed; `wardenbsc-web` and `wardenbsc-api` were restarted under PM2.
 
 ### Remaining rehearsal checklist (do after the bug fix)
 - **#11 hourly snapshot** — auto (worker writes `.snapshots.jsonl`); verify a real USD valuation row.
@@ -53,8 +53,11 @@ gate (typecheck+lint+test) + deploy.
   the window per the $40 book.
 - Rotate the VPS root password, the OCI box password, and the TWAK HMAC secret (all passed through a
   chat session). Move VPS to SSH-key-only. Revoke old TWAK key `0652e53f`.
-- A test worker was launched during #10 and force-stopped; ensure no stray `tsx src/worker.ts` process
-  is running on the VPS and that `data/runtime/positions.json` = `[]`, `manual-review.json` removed.
+- A test worker was launched during #10 and force-stopped. 2026-06-16 verification: no stray
+  `tsx src/worker.ts` process is running on the VPS; watchdog exit tx `0x37b86bcb…` is successful on
+  BSC; wallet balances are ≈40.7626568 USDT + 0.0001516 ETH dust + 0.0141952 BNB; stale
+  `data/runtime/positions.json` was backed up to `positions.json.stale-20260616T002540Z` and reset to
+  `[]`; `manual-review.json` is absent.
 
 ## Snapshot (2026-06-13)
 
