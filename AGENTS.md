@@ -48,6 +48,26 @@ and `pnpm build` also passed; `wardenbsc-web` and `wardenbsc-api` were restarted
 - **#15 phone alerts** — set `ALERT_WEBHOOK_URL`; confirm receipt (incl. trade-at-risk).
 - Then `pnpm rehearsal:checklist` to flip the live gate; start the worker for the window.
 
+### Operator runbook for #12-#15 (resume here if interrupted)
+1. **Kill-switch live test.** On VPS, ensure `.env` has a strong `KILL_SWITCH_TOKEN`, then
+   `pm2 restart wardenbsc-api`. From phone or terminal, call the kill-switch route with
+   `Authorization: Bearer <token>` and confirm the API returns success and writes the expected
+   runtime revocation/kill state. Reset/revoke only when ready to continue rehearsal.
+2. **Restart-and-reconcile.** Start the worker only for the rehearsal test from
+   `/root/wardenbsc/apps/worker` with `pnpm start`. Once there is an intentional test position,
+   `pkill -f 'src/worker.ts'`, restart it, and verify recovery logs/audit show no duplicate entry.
+   Inspect `data/runtime/positions.json`, `data/runtime/manual-review.json`, and recent
+   `data/audit/*.jsonl` before proceeding.
+3. **Fresh calibration.** Run `cd /root/wardenbsc && pnpm calibrate:edge`. Inspect generated output
+   and `git status --short`. Commit/push tracked calibration changes if any; leave gitignored runtime
+   calibration state on the VPS.
+4. **Phone alerts.** Set `ALERT_WEBHOOK_URL` in VPS `.env`, restart the API (and worker if running),
+   then send a test payload to the webhook or use the app's alert-test route if present. Confirm the
+   phone receives the alert, then trigger one real app-generated alert path such as kill-switch or
+   trade-at-risk.
+5. **Final gate.** Run `cd /root/wardenbsc && pnpm rehearsal:checklist`. Do not start the competition
+   worker until the checklist is clean or every remaining manual item is explicitly verified.
+
 ### Housekeeping
 - Wallet now holds ≈ **40.76 USDT + ~0.00015 ETH dust + BNB (gas, reduced)**. Top up gas/stables before
   the window per the $40 book.
