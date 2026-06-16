@@ -42,6 +42,14 @@ export class TwakCliError extends Error {
   }
 }
 
+function parseOutputAmount(output: unknown): number | undefined {
+  if (typeof output !== "string") return undefined;
+  const match = output.trim().match(/^([0-9]+(?:\.[0-9]+)?)/);
+  if (!match) return undefined;
+  const amount = Number(match[1]);
+  return Number.isFinite(amount) ? amount : undefined;
+}
+
 export class CliTwakExecutor implements TwakExecutor {
   readonly configured = true;
   private readonly bin: string;
@@ -116,11 +124,13 @@ export class CliTwakExecutor implements TwakExecutor {
     const out = await this.json(args);
     const txHash = (out.hash as string) ?? (out.txHash as string) ?? (out.transactionHash as string);
     if (!txHash) throw new TwakCliError("twak swap returned no transaction hash");
+    const realizedOut =
+      parseOutputAmount(out.output) ?? (typeof out.amountOut === "number" ? (out.amountOut as number) : undefined);
     return {
       txHash,
       twakReceiptId: (out.id as string) ?? undefined,
-      status: out.confirmed ? "confirmed" : "submitted",
-      realizedOut: typeof out.amountOut === "number" ? (out.amountOut as number) : undefined,
+      status: realizedOut !== undefined ? "confirmed" : "submitted",
+      realizedOut,
     };
   }
 

@@ -22,7 +22,7 @@ beforeAll(() => {
   writeFileSync(
     stubBin,
     `#!/bin/sh
-echo '{"address":"0xAGENTWALLET","hash":"0xTXHASH","registered":true,"participant":"0xAGENTWALLET","confirmed":false,"amountOut":42.5,"explorer":"https://bscscan.com/tx/0xTXHASH"}'
+echo '{"address":"0xAGENTWALLET","hash":"0xTXHASH","registered":true,"participant":"0xAGENTWALLET","output":"42.5 CAKE","explorer":"https://bscscan.com/tx/0xTXHASH"}'
 `,
     "utf8",
   );
@@ -58,12 +58,41 @@ describe("CliTwakExecutor (real subprocess against a stub binary)", () => {
     expect(await ex.resolveAgentWallet()).toBe("0xAGENTWALLET");
   });
 
-  it("signs a spot swap and parses the tx hash", async () => {
+  it("signs a spot entry and parses TWAK output as bought token units", async () => {
     const ex = new CliTwakExecutor({ tokens, bin: stubBin });
     const r = await ex.signAndSubmit(intent());
     expect(r.txHash).toBe("0xTXHASH");
-    expect(r.status).toBe("submitted");
+    expect(r.status).toBe("confirmed");
     expect(r.realizedOut).toBe(42.5);
+  });
+
+  it("signs a spot exit and parses TWAK output as stable proceeds", async () => {
+    const exitBin = join(dir, "twak-exit-stub.sh");
+    writeFileSync(exitBin, `#!/bin/sh\necho '{"hash":"0xEXIT","output":"4.665 USDT"}'\n`, "utf8");
+    chmodSync(exitBin, 0o755);
+    const ex = new CliTwakExecutor({ tokens, bin: exitBin });
+    const r = await ex.signAndSubmit(
+      intent({
+        tokenInAddress: CAKE,
+        tokenOutAddress: USDT,
+        decodedAction: "exit",
+        mandateAction: "exit",
+      }),
+    );
+    expect(r.txHash).toBe("0xEXIT");
+    expect(r.status).toBe("confirmed");
+    expect(r.realizedOut).toBe(4.665);
+  });
+
+  it("keeps hash-only swaps submitted when TWAK gives no executed output", async () => {
+    const hashOnlyBin = join(dir, "twak-hash-only-stub.sh");
+    writeFileSync(hashOnlyBin, `#!/bin/sh\necho '{"hash":"0xPENDING"}'\n`, "utf8");
+    chmodSync(hashOnlyBin, 0o755);
+    const ex = new CliTwakExecutor({ tokens, bin: hashOnlyBin });
+    const r = await ex.signAndSubmit(intent());
+    expect(r.txHash).toBe("0xPENDING");
+    expect(r.status).toBe("submitted");
+    expect(r.realizedOut).toBeUndefined();
   });
 
   it("registers and returns the registration tx hash", async () => {
