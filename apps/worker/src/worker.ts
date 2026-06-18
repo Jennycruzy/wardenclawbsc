@@ -66,6 +66,7 @@ import {
   type CalibrationReport,
   type PendingMandate,
   type PendingSample,
+  type ChainTxState,
   type Holding,
   type OpenPosition,
   type TrailingStopConfig,
@@ -152,13 +153,61 @@ function writeHeartbeat(mode: string, cyclesRun: number): void {
   );
 }
 
+const PENDING_FILE = join(RUNTIME_DIR, "pending.json");
+
 function loadPending(): PendingMandate[] {
-  const f = join(RUNTIME_DIR, "pending.json");
-  if (!existsSync(f)) return [];
+  if (!existsSync(PENDING_FILE)) return [];
   try {
-    return JSON.parse(readFileSync(f, "utf8")) as PendingMandate[];
+    return JSON.parse(readFileSync(PENDING_FILE, "utf8")) as PendingMandate[];
   } catch {
     return [];
+  }
+}
+
+function savePending(list: PendingMandate[]): void {
+  mkdirSync(RUNTIME_DIR, { recursive: true });
+  writeFileSync(PENDING_FILE, JSON.stringify(list, null, 2), "utf8");
+}
+
+/**
+ * Mark a mandate in-flight BEFORE/AROUND a TWAK submit, so a crash between submit
+ * and the local fill record leaves a durable trace. On restart, reconcile() reads
+ * these and resolves each against the chain instead of blindly re-submitting —
+ * this is what prevents a duplicate trade. Upserts by mandateId.
+ */
+function markPending(entry: PendingMandate): void {
+  const list = loadPending().filter((m) => m.mandateId !== entry.mandateId);
+  list.push(entry);
+  savePending(list);
+}
+
+/** Clear a mandate once its fill is fully recorded (no longer in-flight). */
+function clearPending(mandateId: string): void {
+  if (!existsSync(PENDING_FILE)) return;
+  savePending(loadPending().filter((m) => m.mandateId !== mandateId));
+}
+
+/**
+ * Real on-chain lookup for crash recovery: query the first BSC RPC for the tx
+ * receipt. A confirmed receipt means the trade already landed (do not re-submit);
+ * a missing receipt means it never broadcast (safe to re-evaluate as fresh).
+ */
+async function lookupTx(txHash: string): Promise<ChainTxState> {
+  const rpc = (process.env.BSC_RPC_URLS ?? "").split(",")[0]?.trim();
+  if (!rpc) return { found: false, confirmed: false };
+  try {
+    const res = await fetch(rpc, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_getTransactionReceipt", params: [txHash] }),
+    });
+    const json = (await res.json()) as { result?: { blockNumber?: string | null; status?: string } | null };
+    const receipt = json.result;
+    if (!receipt) return { found: false, confirmed: false };
+    const confirmed = Boolean(receipt.blockNumber);
+    return { found: true, confirmed, success: receipt.status === "0x1" };
+  } catch {
+    return { found: false, confirmed: false };
   }
 }
 
@@ -462,7 +511,7 @@ async function main(): Promise<void> {
 
   // 1. Crash-recovery reconciliation BEFORE any trade.
   const pending = loadPending();
-  const report = await reconcile(pending, async () => ({ found: false, confirmed: false }));
+  const report = await reconcile(pending, lookupTx);
   await audit.append({
     timestamp: new Date().toISOString(),
     mandateId: "recovery",
@@ -471,19 +520,31 @@ async function main(): Promise<void> {
     output: { ...report },
   });
   if (report.requiresReview) {
+    // An in-flight mandate could not be safely resolved against the chain (e.g.
+    // a re-used nonce). Arm the manual-review halt and stop — the next start is
+    // blocked at the manualReviewRequired() gate until an operator resolves it.
+    requireManualReview({
+      stage: "recovery",
+      reason: "Crash recovery found in-flight mandate(s) needing manual chain reconciliation before trading resumes.",
+      resolutions: report.resolutions,
+    });
     await sendAlert(process.env.ALERT_WEBHOOK_URL, {
       reason: "restart_recovery",
-      message: `Recovery requires review: ${report.resolutions.length} pending mandate(s).`,
+      message: `Recovery requires review: ${report.resolutions.length} pending mandate(s). Trading halted until data/runtime/manual-review.json is resolved.`,
       timestamp: new Date().toISOString(),
     });
-    console.warn("[worker] recovery requires manual review — not trading until resolved.");
-  } else {
-    await sendAlert(process.env.ALERT_WEBHOOK_URL, {
-      reason: "restart_recovery",
-      message: `Worker started cleanly (${mode} mode). ${report.duplicatesPrevented} duplicates prevented.`,
-      timestamp: new Date().toISOString(),
-    });
+    console.warn("[worker] recovery requires manual review — halting until manual-review.json is resolved.");
+    process.exit(1);
   }
+  // Reconciled cleanly: every pending mandate was resolved against the chain
+  // (confirmed, failed, or never broadcast), so none remain in-flight. Clear the
+  // file so a resolved mandate is never reconciled — or duplicated — twice.
+  if (pending.length > 0) savePending([]);
+  await sendAlert(process.env.ALERT_WEBHOOK_URL, {
+    reason: "restart_recovery",
+    message: `Worker started cleanly (${mode} mode). ${report.duplicatesPrevented} duplicates prevented.`,
+    timestamp: new Date().toISOString(),
+  });
 
   // Restore the per-token signal history so the entry-quality gates (catalyst
   // uncrowding, RS continuation) see change across cycles and restarts.
@@ -722,8 +783,12 @@ async function main(): Promise<void> {
           mandateAction: "exit",
           mandateId: pos.mandateId,
         };
+        const exitMandateId = `${pos.mandateId}-exit`;
         try {
+          // Mark the exit in-flight before signing so a crash mid-exit is recoverable.
+          if (executor) markPending({ mandateId: exitMandateId, status: "pending_build" });
           const outcome = executor ? await executor.execute(exitIntent, { spentTodayUsd: 0 }) : null;
+          if (outcome?.receipt) markPending({ mandateId: exitMandateId, txHash: outcome.receipt.txHash, status: "submitted" });
           await audit.append({
             timestamp: new Date().toISOString(),
             mandateId: pos.mandateId,
@@ -744,6 +809,7 @@ async function main(): Promise<void> {
               : undefined,
           });
           if (outcome?.refused) {
+            clearPending(exitMandateId); // never broadcast — not in-flight
             await sendAlert(process.env.ALERT_WEBHOOK_URL, {
               reason: "twak_refusal",
               message: `TWAK refused safety exit on ${pos.symbol}: ${outcome.policy.reason}`,
@@ -810,6 +876,7 @@ async function main(): Promise<void> {
         const idx = openPositions.findIndex((p) => p.mandateId === pos.mandateId);
         if (idx >= 0) openPositions.splice(idx, 1);
         lastPriceMs.delete(pos.mandateId);
+        clearPending(exitMandateId); // exit fully recorded — no longer in-flight
       }
     }
     saveOpenPositions(openPositions);
@@ -1355,14 +1422,19 @@ async function main(): Promise<void> {
           console.warn(`[worker] ${e.token.symbol} blocked — x402 required but unavailable/failed.`);
         } else if (isWinner && executor && e.result.intent) {
           try {
+            // Mark the mandate in-flight BEFORE the submit, then attach the txHash
+            // once it returns, so a crash mid-submit leaves a recoverable trace.
+            markPending({ mandateId: mandate.id, status: "pending_build" });
             const outcome = await executor.execute(e.result.intent, { spentTodayUsd });
             if (outcome.refused) {
+              clearPending(mandate.id); // never broadcast — not in-flight
               await sendAlert(process.env.ALERT_WEBHOOK_URL, {
                 reason: "twak_refusal",
                 message: `TWAK refused ${e.token.symbol}: ${outcome.policy.rejectCode} — ${outcome.policy.reason}`,
                 timestamp: new Date().toISOString(),
               });
             } else if (outcome.receipt) {
+              markPending({ mandateId: mandate.id, txHash: outcome.receipt.txHash, status: "submitted" });
               spentTodayUsd += e.result.economics.positionSizeUsd;
               mandate.execution.status = "submitted";
               mandate.execution.txHash = outcome.receipt.txHash;
@@ -1437,6 +1509,7 @@ async function main(): Promise<void> {
                 output: { status: "submitted", txHash: outcome.receipt.txHash },
                 proofAnchors: { bscTxHash: outcome.receipt.txHash, twakReceipt: outcome.receipt.twakReceiptId },
               });
+              clearPending(mandate.id); // fully recorded — no longer in-flight
               console.log(`[worker] EXECUTED ${e.token.symbol} → tx ${outcome.receipt.txHash}`);
             }
           } catch (err) {
