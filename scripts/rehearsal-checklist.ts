@@ -11,6 +11,8 @@
  * they must be performed and confirmed before June 22. This never fakes a pass.
  */
 
+import "dotenv/config";
+
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { verifyCompetitionRules } from "@wardenclaw/core";
