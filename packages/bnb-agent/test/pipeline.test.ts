@@ -216,6 +216,19 @@ describe("evaluateCandidate — governor + micro-scout", () => {
     expect(thin.governor.sizeFraction).toBeLessThan(healthy.governor.sizeFraction);
   });
 
+  it("halts new directional size once the internal window budget is breached (DQ guard)", () => {
+    // At/over internalWindowDrawdownPct (15%) the window layer has no headroom, so the
+    // governor must size new directional entries to zero — far inside the 30% DQ.
+    // This is the production protection the worker enables by feeding the REAL
+    // drawdown (previously hardcoded 0, leaving the governor inert).
+    const cap = DEFAULT_RISK_CONFIG.internalWindowDrawdownPct;
+    expect(evaluateCandidate(candidate(), ctx({ windowDrawdownPct: cap })).governor.sizeFraction).toBe(0);
+    expect(
+      evaluateCandidate(candidate(), ctx({ windowDrawdownPct: DEFAULT_RISK_CONFIG.competitionDqDrawdownPct }))
+        .governor.sizeFraction,
+    ).toBe(0);
+  });
+
   it("approves a stable↔stable Micro-Scout, exempt from net-edge", () => {
     const scout = candidate({
       symbol: "USDC",

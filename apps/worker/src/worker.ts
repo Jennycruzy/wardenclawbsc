@@ -1116,11 +1116,21 @@ async function main(): Promise<void> {
         twakPolicy,
         portfolioUsd: walletValueUsd,
         deployableUsd: Math.max(0, book.walletCashUsd - config.gasReserveUsd),
-        windowDrawdownPct: 0,
+        // Whole-window peak-to-trough drawdown (the 30% DQ metric) computed at line
+        // ~1023 from the week ledger's running peak. Feeding the REAL value lets the
+        // drawdown governor throttle entry size toward the internal 15% budget long
+        // before the 30% disqualifier — previously hardcoded 0, leaving it inert.
+        windowDrawdownPct: weekState.drawdownFromPeakPct,
+        // Per-UTC-day peak-to-trough needs a daily anchor we don't yet persist; until
+        // then the binding protection is the whole-window drawdown above.
         dailyDrawdownPct: 0,
         openPositions: openPositions.length,
         tradesToday: entriesOnUtcDay(weekLedger, new Date().toISOString()),
-        survivalMode: false,
+        // Hard backstop: once the internal whole-window budget is breached, block new
+        // directional entries (scouts and forced safety exits stay allowed). The
+        // governor already shrinks size to ~0 by this point; this slams the brakes
+        // well inside the 30% DQ. Scout-only rehearsals are unaffected (drawdown ~0).
+        survivalMode: weekState.drawdownFromPeakPct >= config.internalWindowDrawdownPct,
         marketDataStale: false,
         calibrationStale: mode === "dry",
         sizeMultiplier: weekBudget.sizeMultiplier,
