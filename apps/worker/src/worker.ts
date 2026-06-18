@@ -28,6 +28,8 @@ import {
   valueHoldings,
   initTrailingStop,
   evaluateWatchTick,
+  evaluateWatchdog,
+  WatchdogAction,
   serializeOpenPositions,
   parseOpenPositions,
   appendObservation,
@@ -296,6 +298,37 @@ function loadDailyAnchor(): DailyAnchor | undefined {
 function saveDailyAnchor(anchor: DailyAnchor): void {
   mkdirSync(RUNTIME_DIR, { recursive: true });
   writeFileSync(DAILY_ANCHOR_FILE, serializeDailyAnchor(anchor), "utf8");
+}
+
+const SCOUT_RESERVE_FILE = join(RUNTIME_DIR, "scout-reserve.json");
+type ScoutStable = "USDT" | "USDC";
+
+/** Which stable the compliance-scout reserve currently sits in. The scout alternates
+ *  direction so the ~$5 it moves never strands on one side and starves the USDT the
+ *  real entries spend. Defaults to USDT (the all-USDT home state). */
+function loadScoutHeldStable(): ScoutStable {
+  if (!existsSync(SCOUT_RESERVE_FILE)) return "USDT";
+  const held = (JSON.parse(readFileSync(SCOUT_RESERVE_FILE, "utf8")) as { heldStable?: string }).heldStable;
+  return held === "USDC" ? "USDC" : "USDT";
+}
+
+function saveScoutHeldStable(heldStable: ScoutStable): void {
+  mkdirSync(RUNTIME_DIR, { recursive: true });
+  writeFileSync(SCOUT_RESERVE_FILE, JSON.stringify({ heldStable }), "utf8");
+}
+
+const LOSS_STREAK_FILE = join(RUNTIME_DIR, "loss-streak.json");
+
+/** Consecutive realized losses, persisted so the survival pause survives restarts. */
+function loadLossStreak(): number {
+  if (!existsSync(LOSS_STREAK_FILE)) return 0;
+  const n = (JSON.parse(readFileSync(LOSS_STREAK_FILE, "utf8")) as { streak?: number }).streak;
+  return Number.isFinite(n) && (n as number) >= 0 ? Math.floor(n as number) : 0;
+}
+
+function saveLossStreak(streak: number): void {
+  mkdirSync(RUNTIME_DIR, { recursive: true });
+  writeFileSync(LOSS_STREAK_FILE, JSON.stringify({ streak }), "utf8");
 }
 
 const REGIME_FILE = join(RUNTIME_DIR, "regime.json");
@@ -590,10 +623,17 @@ async function main(): Promise<void> {
   let weekLedger = loadWeekLedger(weekStartIso, config.startingCapitalUsd);
   saveWeekLedger(weekLedger);
   let dailyAnchor = loadDailyAnchor();
+  let scoutHeldStable = loadScoutHeldStable();
+  let lossStreak = loadLossStreak();
   let book = loadBook();
   saveBook(book);
   let defendTightTrail = false;
   let lastRiskState: string | null = null;
+  // Per-position watchdog verdicts, refreshed each main cycle and read by the concurrent
+  // watch loop: a forced rotation-to-stables (portfolio danger) or a trail-tighten
+  // (thesis wobble — flip / liquidity / slippage / soft-drawdown). Maps by mandateId.
+  let watchdogForceExit = new Map<string, ExitReason>();
+  let watchdogTighten = new Set<string>();
 
   // WS7 red-day regime analyst: GREEN/NEUTRAL/RED with hysteresis, restored across
   // restarts. A committed RED regime blocks new directional entries (the gate) and
@@ -762,9 +802,15 @@ async function main(): Promise<void> {
         config: trailConfig,
         stalenessLimitSeconds: config.watchStalenessLimitSeconds,
         stalenessAction: config.watchStalenessAction,
-        // RED regime tightens the trail AND forces a rotation-to-stables exit.
-        tightMode: pos.trail.tightMode || regimeRed || defendTightTrail,
-        forceExit: regimeRed ? { reason: ExitReason.REGIME_RED } : undefined,
+        // RED regime, DEFEND, or a watchdog thesis-wobble tightens the trail; RED or a
+        // watchdog portfolio-danger verdict forces a rotation-to-stables exit.
+        tightMode:
+          pos.trail.tightMode || regimeRed || defendTightTrail || watchdogTighten.has(pos.mandateId),
+        forceExit: watchdogForceExit.has(pos.mandateId)
+          ? { reason: watchdogForceExit.get(pos.mandateId)! }
+          : regimeRed
+            ? { reason: ExitReason.REGIME_RED }
+            : undefined,
       });
 
       if (tick.action === "stale") {
@@ -871,6 +917,10 @@ async function main(): Promise<void> {
               `[worker] measured real round-trip on ${pos.symbol}: ${measuredBps.toFixed(0)}bps (rolling ${rollingRealCostBps(walletCost).toFixed(0)}bps over ${walletCost.samples.length} fill(s))`,
             );
             book.walletCashUsd += outcome.receipt.realizedOut;
+            // Track consecutive realized losses (proceeds below cost basis) so a streak
+            // pauses new directional entries via the survival gate above.
+            lossStreak = outcome.receipt.realizedOut < pos.notionalUsd ? lossStreak + 1 : 0;
+            saveLossStreak(lossStreak);
             const priceMoveBps = ((tick.exit.currentPrice - tick.exit.entryPrice) / tick.exit.entryPrice) * 10_000;
             book.scoredValueUsd +=
               (scoredReturnBps({
@@ -1149,11 +1199,14 @@ async function main(): Promise<void> {
         dailyDrawdownPct: daily.dailyDrawdownPct,
         openPositions: openPositions.length,
         tradesToday: entriesOnUtcDay(weekLedger, new Date().toISOString()),
-        // Hard backstop: once the internal whole-window budget is breached, block new
-        // directional entries (scouts and forced safety exits stay allowed). The
-        // governor already shrinks size to ~0 by this point; this slams the brakes
-        // well inside the 30% DQ. Scout-only rehearsals are unaffected (drawdown ~0).
-        survivalMode: weekState.drawdownFromPeakPct >= config.internalWindowDrawdownPct,
+        // Hard backstop: block new directional entries (scouts and forced safety exits
+        // stay allowed) once the internal whole-window budget is breached OR after a run
+        // of consecutive realized losses. The governor already shrinks size to ~0 near the
+        // drawdown cap; this slams the brakes well inside the 30% DQ and stops a losing
+        // streak from compounding. Scout-only rehearsals are unaffected (drawdown 0, no losses).
+        survivalMode:
+          weekState.drawdownFromPeakPct >= config.internalWindowDrawdownPct ||
+          lossStreak >= config.survivalLossStreak,
         marketDataStale: false,
         calibrationStale: mode === "dry",
         sizeMultiplier: weekBudget.sizeMultiplier,
@@ -1240,6 +1293,55 @@ async function main(): Promise<void> {
           throw err;
         }
       };
+
+      // --- Per-position watchdog (main-cycle cadence) ---
+      // The trailing-stop loop owns the price stop; the watchdog adds the rest of the
+      // protective layer: a thesis wobble (CMC signal flip / liquidity thinning /
+      // slippage spike), a soft drawdown, or a loss streak TIGHTENS the trail (lock gains,
+      // don't dump a runner on noise); only a portfolio-danger reading forces a rotation
+      // to stables. Verdicts are handed to the concurrent watch loop via the shared maps.
+      watchdogForceExit = new Map<string, ExitReason>();
+      watchdogTighten = new Set<string>();
+      for (const pos of openPositions) {
+        const heldToken = loaded.tokens.find(
+          (t) => t.bscContractAddress.toLowerCase() === pos.tokenOutAddress.toLowerCase(),
+        );
+        const quote = allQuotes.find((q) => q.symbol === pos.symbol);
+        const pool = heldToken ? await resolvePool(heldToken) : null;
+        const shadowDevBps = pool
+          ? (Math.abs(pool.shadow.expectedOut - pool.shadow.simulatedOut) /
+              Math.max(pool.shadow.expectedOut, 1e-9)) *
+            10_000
+          : 0;
+        const wd = evaluateWatchdog({
+          // Feed a price at the high-water mark so the watchdog's own stop-breach branch
+          // never double-fires — the watch loop is the single owner of the price stop.
+          currentPrice: pos.trail.highWaterMark,
+          stopPrice: pos.trail.stopPrice,
+          hasOpenPosition: true,
+          hasPendingOrder: false,
+          windowDrawdownPct: weekState.drawdownFromPeakPct,
+          softDrawdownPct: config.softDrawdownPct,
+          lossStreak,
+          portfolioValueUsd: walletValueUsd,
+          dangerPortfolioValueUsd: config.dangerPortfolioValueUsd,
+          // Entry-time reserves aren't stored, so liquidity-thinning is proxied by the
+          // shadow-fill deviation (which also flags slippage spikes / MEV) below.
+          liquidityThinning: false,
+          // Thesis break for a long: the coin has actually turned red on the day AND lost
+          // its edge over the benchmark — not merely lagging BNB while still rising.
+          cmcSignalFlipped: quote ? quote.percentChange24h < 0 && quote.percentChange24h - bnbChange < 0 : false,
+          slippageSpiking: shadowDevBps > config.shadowFillToleranceBps,
+        });
+        if (wd.actions.includes(WatchdogAction.CLOSE_POSITION)) {
+          watchdogForceExit.set(pos.mandateId, ExitReason.PORTFOLIO_DANGER);
+        } else if (
+          wd.actions.includes(WatchdogAction.REDUCE_POSITION) ||
+          wd.actions.includes(WatchdogAction.PAUSE_STRATEGY)
+        ) {
+          watchdogTighten.add(pos.mandateId);
+        }
+      }
 
       // Candidate specs across the three families: momentum on every major;
       // rs_continuation on majors outperforming the benchmark; catalyst on eligible
@@ -1380,11 +1482,18 @@ async function main(): Promise<void> {
       }
       if (schedule.plan === "hold") winner = undefined;
       if (schedule.plan === "micro_scout") {
+        // Alternate direction so the scout reserve round-trips instead of stranding on
+        // USDC: out of USDT when we hold USDT, back to USDT when we hold the prior scout's
+        // USDC. resolvePool always reports reserves with the USDT side as reserveIn, so we
+        // orient them to the chosen swap direction.
+        const fromUsdt = scoutHeldStable === "USDT";
+        const tokenIn = fromUsdt ? usdt : usdc;
+        const tokenOut = fromUsdt ? usdc : usdt;
         const pool = await resolvePool(usdc);
         if (pool) {
           const scoutResult = evaluateCandidate(
             {
-              symbol: "USDC",
+              symbol: tokenOut.symbol,
               signalFamily: "momentum",
               scoreInputs: {
                 momentum: 0,
@@ -1396,14 +1505,14 @@ async function main(): Promise<void> {
               },
               cmcToolsUsed: [],
               marketDataTimestamp: now.toISOString(),
-              tokenInAddress: usdt.bscContractAddress,
-              tokenOutAddress: usdc.bscContractAddress,
+              tokenInAddress: tokenIn.bscContractAddress,
+              tokenOutAddress: tokenOut.bscContractAddress,
               router: "pancakeswap",
               spender: PANCAKE_V2_ROUTER,
               to: PANCAKE_V2_ROUTER,
               atrPct: 0.001,
-              reserveIn: pool.reserveIn,
-              reserveOut: pool.reserveOut,
+              reserveIn: fromUsdt ? pool.reserveIn : pool.reserveOut,
+              reserveOut: fromUsdt ? pool.reserveOut : pool.reserveIn,
               poolFeeBps: 25,
               gasPerLegUsd,
               shadow: pool.shadow,
@@ -1413,7 +1522,7 @@ async function main(): Promise<void> {
           );
           const scout = {
             result: scoutResult,
-            token: usdc,
+            token: tokenOut,
             tools: [] as string[],
             ts: now.toISOString(),
             price: 1,
@@ -1492,6 +1601,9 @@ async function main(): Promise<void> {
                 }
                 book.walletCashUsd += outcome.receipt.realizedOut - e.result.economics.positionSizeUsd;
                 weekLedger = recordLeg(weekLedger, "scout", filledAt);
+                // The scout reserve has moved to the other stable; next scout reverses it.
+                scoutHeldStable = scoutHeldStable === "USDT" ? "USDC" : "USDT";
+                saveScoutHeldStable(scoutHeldStable);
               } else {
                 if (typeof outcome.receipt.realizedOut !== "number") {
                   requireManualReview({

@@ -66,6 +66,7 @@ export interface RiskConfig {
   internalWindowDrawdownPct: number; // the offense's actual risk budget
   maxDailyDrawdownPct: number;
   softDrawdownPct: number;
+  survivalLossStreak: number; // consecutive realized losses that pause new directional entries
   competitionFloorUsd: number; // verified $1 hourly zeroing rule
   dangerPortfolioValueUsd: number;
 
@@ -145,6 +146,7 @@ export const DEFAULT_RISK_CONFIG: RiskConfig = {
   internalWindowDrawdownPct: 15,
   maxDailyDrawdownPct: 6,
   softDrawdownPct: 4,
+  survivalLossStreak: 2,
   competitionFloorUsd: 1.0,
   dangerPortfolioValueUsd: 8,
 
@@ -268,6 +270,7 @@ export function loadRiskConfig(env: Record<string, string | undefined> = {}): Ri
     dustRoundTripCeilingBps: num("DUST_ROUND_TRIP_CEILING_BPS", d.dustRoundTripCeilingBps),
     maxSlippageBps: num("MAX_SLIPPAGE_BPS", d.maxSlippageBps),
     swapSlippageBufferBps: num("SWAP_SLIPPAGE_BUFFER_BPS", d.swapSlippageBufferBps),
+    survivalLossStreak: num("SURVIVAL_LOSS_STREAK", d.survivalLossStreak),
     shadowFillToleranceBps: num("SHADOW_FILL_TOLERANCE_BPS", d.shadowFillToleranceBps),
     kellyFraction: num("KELLY_FRACTION", d.kellyFraction),
     calibrationMaxAgeDays: num("CALIBRATION_MAX_AGE_DAYS", d.calibrationMaxAgeDays),

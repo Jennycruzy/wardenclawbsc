@@ -52,6 +52,8 @@ export const ExitReason = {
   TRAIL_RATCHET: "EXIT_TRAIL_RATCHET",
   /** Rotated to stables because the market regime turned RED (WS7). */
   REGIME_RED: "EXIT_REGIME_RED",
+  /** Watchdog forced a rotation to stables: portfolio fell to the danger threshold. */
+  PORTFOLIO_DANGER: "EXIT_PORTFOLIO_DANGER",
 } as const;
 export type ExitReason = (typeof ExitReason)[keyof typeof ExitReason];
 
