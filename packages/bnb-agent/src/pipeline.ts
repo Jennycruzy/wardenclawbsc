@@ -253,6 +253,7 @@ export function evaluateCandidate(input: CandidateInput, ctx: PipelineContext): 
       gasOutUsd: input.gasPerLegUsd,
       expectedSlippageBps: slippageBps,
       lpFeeBps: input.poolFeeBps,
+      twakFeeBps: ctx.config.twakFeeBps,
       scoringSimCostBps: ctx.config.scoringSimCostBps,
     }).frictionBps;
   };
@@ -306,6 +307,7 @@ export function evaluateCandidate(input: CandidateInput, ctx: PipelineContext): 
     gasOutUsd: input.gasPerLegUsd,
     expectedSlippageBps: slippageBps,
     lpFeeBps: input.poolFeeBps,
+    twakFeeBps: ctx.config.twakFeeBps,
     scoringSimCostBps: ctx.config.scoringSimCostBps,
   });
 

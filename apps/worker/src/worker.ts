@@ -542,6 +542,7 @@ async function main(): Promise<void> {
     gasOutUsd: 0.02,
     expectedSlippageBps: 10,
     lpFeeBps: 25,
+    twakFeeBps: config.twakFeeBps,
     scoringSimCostBps: 0,
   }).realFrictionBps;
   let walletCost = loadWalletCost(walletBootstrapBps);

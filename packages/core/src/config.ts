@@ -73,6 +73,7 @@ export interface RiskConfig {
   netEdgeMinBps: number;
   frictionBudgetBps: number;
   scoringSimCostBps: number; // per trade leg — conservative default until confirmed
+  twakFeeBps: number; // TWAK swap fee per leg — 7.7 (0.077%) waived rate during the trading week
   walletFloorFraction: number; // expected move must exceed this × measured real round-trip
   dustRoundTripCeilingBps: number; // measured real round-trip above this = dust (notional too small vs fixed cost)
   maxSlippageBps: number;
@@ -144,6 +145,7 @@ export const DEFAULT_RISK_CONFIG: RiskConfig = {
   netEdgeMinBps: 30,
   frictionBudgetBps: 120,
   scoringSimCostBps: 10,
+  twakFeeBps: 7.7,
   walletFloorFraction: 0.75,
   dustRoundTripCeilingBps: 350,
   maxSlippageBps: 50,
@@ -254,6 +256,7 @@ export function loadRiskConfig(env: Record<string, string | undefined> = {}): Ri
     netEdgeMinBps: num("NET_EDGE_MIN_BPS", d.netEdgeMinBps),
     frictionBudgetBps: num("FRICTION_BUDGET_BPS", d.frictionBudgetBps),
     scoringSimCostBps: num("SCORING_SIM_COST_BPS", d.scoringSimCostBps),
+    twakFeeBps: num("TWAK_FEE_BPS", d.twakFeeBps),
     walletFloorFraction: num("WALLET_FLOOR_FRACTION", d.walletFloorFraction),
     dustRoundTripCeilingBps: num("DUST_ROUND_TRIP_CEILING_BPS", d.dustRoundTripCeilingBps),
     maxSlippageBps: num("MAX_SLIPPAGE_BPS", d.maxSlippageBps),

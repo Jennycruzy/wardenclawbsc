@@ -18,6 +18,8 @@ export interface FrictionInputs {
   lpFeeBps: number;
   /** Competition's simulated cost per leg (conservative default until confirmed). */
   scoringSimCostBps: number;
+  /** TWAK executor swap fee per leg, in bps (e.g. 7.7 = 0.077% waived rate). */
+  twakFeeBps?: number;
   /** Configurable safety margin in bps. */
   safetyBufferBps?: number;
 }
@@ -33,14 +35,16 @@ export interface FrictionResult {
     gasBps: number;
     slippageBps: number; // round trip
     lpFeeBps: number; // round trip
+    twakFeeBps: number; // round trip
     safetyBufferBps: number;
   };
 }
 
 /**
- * Compute round-trip friction. Slippage and LP fee are charged on both legs;
- * the simulated scoring cost is charged per leg (×2). Gas is the sum of both
- * legs' USD cost expressed as bps of notional.
+ * Compute round-trip friction. Slippage, LP fee and the TWAK swap fee are charged
+ * on both legs; the simulated scoring cost is charged per leg (×2). Gas is the sum
+ * of both legs' USD cost expressed as bps of notional. The TWAK fee is part of the
+ * real round-trip cost (it is actually paid), so it lands in realFrictionBps.
  */
 export function computeFriction(inputs: FrictionInputs): FrictionResult {
   if (inputs.notionalUsd <= 0) {
@@ -51,15 +55,16 @@ export function computeFriction(inputs: FrictionInputs): FrictionResult {
   const gasBps = ((inputs.gasInUsd + inputs.gasOutUsd) / inputs.notionalUsd) * 10_000;
   const slippageBps = inputs.expectedSlippageBps * 2;
   const lpFeeBps = inputs.lpFeeBps * 2;
+  const twakFeeBps = (inputs.twakFeeBps ?? 0) * 2;
   const simulatedCostBps = inputs.scoringSimCostBps * 2;
 
-  const realFrictionBps = gasBps + slippageBps + lpFeeBps + safetyBufferBps;
+  const realFrictionBps = gasBps + slippageBps + lpFeeBps + twakFeeBps + safetyBufferBps;
   const frictionBps = realFrictionBps + simulatedCostBps;
 
   return {
     frictionBps,
     realFrictionBps,
     simulatedCostBps,
-    breakdown: { gasBps, slippageBps, lpFeeBps, safetyBufferBps },
+    breakdown: { gasBps, slippageBps, lpFeeBps, twakFeeBps, safetyBufferBps },
   };
 }

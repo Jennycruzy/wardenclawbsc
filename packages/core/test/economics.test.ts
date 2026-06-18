@@ -27,6 +27,23 @@ describe("friction model", () => {
     expect(r.frictionBps).toBeCloseTo(145, 5);
   });
 
+  it("adds the TWAK swap fee per leg into the real round-trip cost", () => {
+    const common = {
+      notionalUsd: 20,
+      gasInUsd: 0.05,
+      gasOutUsd: 0.05,
+      expectedSlippageBps: 10,
+      lpFeeBps: 25,
+      scoringSimCostBps: 10,
+    };
+    const base = computeFriction(common);
+    const withFee = computeFriction({ ...common, twakFeeBps: 7.7 });
+    expect(base.breakdown.twakFeeBps).toBe(0); // defaults to 0 when unset
+    expect(withFee.breakdown.twakFeeBps).toBeCloseTo(15.4, 5); // 7.7 × 2 legs
+    // The TWAK fee is really paid, so it lands in the real round-trip cost.
+    expect(withFee.realFrictionBps - base.realFrictionBps).toBeCloseTo(15.4, 5);
+  });
+
   it("throws on non-positive notional", () => {
     expect(() => computeFriction({
       notionalUsd: 0,

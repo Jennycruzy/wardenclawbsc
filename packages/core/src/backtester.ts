@@ -38,6 +38,7 @@ export interface BacktestConfig {
   gasPerLegUsd: number;
   slippageBps: number;
   lpFeeBps: number;
+  twakFeeBps?: number;
   safetyBufferBps: number;
 }
 
@@ -90,6 +91,7 @@ export function runBacktest(bars: Bar[], signalFn: SignalFn, config: BacktestCon
       gasOutUsd: config.gasPerLegUsd,
       expectedSlippageBps: config.slippageBps,
       lpFeeBps: config.lpFeeBps,
+      twakFeeBps: config.twakFeeBps,
       scoringSimCostBps: config.scoringSimCostBps,
       safetyBufferBps: config.safetyBufferBps,
     }).frictionBps;
