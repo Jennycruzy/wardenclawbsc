@@ -46,6 +46,9 @@ import {
   weekElapsedFraction,
   serializeWeekLedger,
   parseWeekLedger,
+  updateDailyDrawdown,
+  serializeDailyAnchor,
+  parseDailyAnchor,
   initRegimeState,
   evaluateRegime,
   serializeRegimeState,
@@ -74,6 +77,7 @@ import {
   type SignalObservation,
   type WeekLedger,
   type WeekBudgetConfig,
+  type DailyAnchor,
 } from "@wardenclaw/core";
 import {
   CmcClient,
@@ -278,6 +282,20 @@ function loadWeekLedger(weekStartIso: string, startValueUsd: number): WeekLedger
 function saveWeekLedger(ledger: WeekLedger): void {
   mkdirSync(RUNTIME_DIR, { recursive: true });
   writeFileSync(WEEK_LEDGER_FILE, serializeWeekLedger(ledger), "utf8");
+}
+
+const DAILY_ANCHOR_FILE = join(RUNTIME_DIR, "daily-drawdown.json");
+
+/** Restore the intraday peak anchor so the daily-drawdown layer survives restarts.
+ *  A stale anchor from a previous UTC day is harmless — updateDailyDrawdown resets it. */
+function loadDailyAnchor(): DailyAnchor | undefined {
+  if (!existsSync(DAILY_ANCHOR_FILE)) return undefined;
+  return parseDailyAnchor(readFileSync(DAILY_ANCHOR_FILE, "utf8")); // throws loud on corruption
+}
+
+function saveDailyAnchor(anchor: DailyAnchor): void {
+  mkdirSync(RUNTIME_DIR, { recursive: true });
+  writeFileSync(DAILY_ANCHOR_FILE, serializeDailyAnchor(anchor), "utf8");
 }
 
 const REGIME_FILE = join(RUNTIME_DIR, "regime.json");
@@ -571,6 +589,7 @@ async function main(): Promise<void> {
   };
   let weekLedger = loadWeekLedger(weekStartIso, config.startingCapitalUsd);
   saveWeekLedger(weekLedger);
+  let dailyAnchor = loadDailyAnchor();
   let book = loadBook();
   saveBook(book);
   let defendTightTrail = false;
@@ -1019,6 +1038,10 @@ async function main(): Promise<void> {
       const walletValueUsd = await currentWalletValueUsd();
       const currentValueUsd = book.scoredValueUsd;
       weekLedger = recordWeekValue(weekLedger, currentValueUsd);
+      // Intraday peak-to-trough (resets at UTC midnight) for the governor's daily layer.
+      const daily = updateDailyDrawdown(dailyAnchor, currentValueUsd, new Date().toISOString());
+      dailyAnchor = daily.anchor;
+      saveDailyAnchor(dailyAnchor);
       const weekElapsed = weekElapsedFraction(new Date().toISOString(), weekStartIso, weekEndIso);
       const weekState = deriveWeekBudgetState(weekLedger, currentValueUsd, weekElapsed);
       const weekBudget = evaluateWeekBudget(weekState, weekBudgetCfg);
@@ -1121,9 +1144,9 @@ async function main(): Promise<void> {
         // drawdown governor throttle entry size toward the internal 15% budget long
         // before the 30% disqualifier — previously hardcoded 0, leaving it inert.
         windowDrawdownPct: weekState.drawdownFromPeakPct,
-        // Per-UTC-day peak-to-trough needs a daily anchor we don't yet persist; until
-        // then the binding protection is the whole-window drawdown above.
-        dailyDrawdownPct: 0,
+        // Intraday peak-to-trough (resets at UTC midnight); drives the governor's daily
+        // layer so a bad day throttles size independently of the whole-window budget.
+        dailyDrawdownPct: daily.dailyDrawdownPct,
         openPositions: openPositions.length,
         tradesToday: entriesOnUtcDay(weekLedger, new Date().toISOString()),
         // Hard backstop: once the internal whole-window budget is breached, block new

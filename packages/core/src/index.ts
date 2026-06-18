@@ -15,6 +15,7 @@ export * from "./catalystEntry.js";
 export * from "./rsContinuation.js";
 export * from "./weekBudget.js";
 export * from "./weekLedger.js";
+export * from "./dailyDrawdown.js";
 export * from "./regimeAnalyst.js";
 export * from "./edgeCalibration.js";
 export * from "./calibrationCollector.js";
