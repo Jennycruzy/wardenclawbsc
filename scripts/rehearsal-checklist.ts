@@ -13,7 +13,7 @@
 
 import "dotenv/config";
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { verifyCompetitionRules } from "@wardenclaw/core";
 import { renderPreflightCmcBlock, type CmcWiringReport } from "@wardenclaw/cmc-adapter";
@@ -28,6 +28,10 @@ interface Check {
 
 function envSet(name: string): boolean {
   return Boolean(process.env[name] && process.env[name] !== "");
+}
+
+function envTrue(name: string): boolean {
+  return process.env[name] === "true" || process.env[name] === "1";
 }
 
 const eligiblePath = process.env.ELIGIBLE_TOKENS_PATH ?? "data/eligible-tokens.json";
@@ -47,22 +51,86 @@ if (existsSync(cmcWiringPath)) {
 }
 const cmcWiringProven = cmcWiring?.pass === true;
 
+interface AuditEvent {
+  stage?: string;
+  input?: Record<string, unknown>;
+  output?: Record<string, unknown>;
+}
+
+function auditEvents(): AuditEvent[] {
+  const dir = join(process.cwd(), "data", "audit");
+  if (!existsSync(dir)) return [];
+  const events: AuditEvent[] = [];
+  for (const name of readdirSync(dir).filter((x) => x.endsWith(".jsonl"))) {
+    for (const line of readFileSync(join(dir, name), "utf8").split("\n")) {
+      if (!line.trim()) continue;
+      try {
+        events.push(JSON.parse(line) as AuditEvent);
+      } catch {
+        // A malformed row is not evidence; leave the corresponding check false.
+      }
+    }
+  }
+  return events;
+}
+
+const events = auditEvents();
+const liveSwapEvidence = events.find(
+  (e) =>
+    e.stage === "execution" &&
+    e.output?.status === "submitted" &&
+    typeof e.output?.txHash === "string",
+);
+const watchdogExitEvidence = events.find(
+  (e) =>
+    e.stage === "watchdog" &&
+    e.output?.status === "submitted" &&
+    typeof e.output?.txHash === "string",
+);
+const recoveryEvidence = events.find((e) => {
+  if (e.stage !== "recovery" || Number(e.input?.pending ?? 0) < 1) return false;
+  const output = e.output as
+    | { requiresReview?: boolean; resolutions?: Array<{ resolution?: string }> }
+    | undefined;
+  return (
+    output?.requiresReview === false &&
+    output.resolutions?.some((r) => r.resolution === "confirmed_filled") === true
+  );
+});
+const auditDir = join(process.cwd(), "data", "audit");
+const snapshotEvidence =
+  existsSync(auditDir) &&
+  readdirSync(auditDir).some((name) => {
+    if (!name.endsWith(".snapshots.jsonl")) return false;
+    return readFileSync(join(auditDir, name), "utf8")
+      .split("\n")
+      .some((line) => {
+        if (!line.trim()) return false;
+        try {
+          const row = JSON.parse(line) as { valueUsd?: number };
+          return Number.isFinite(row.valueUsd) && (row.valueUsd as number) > 0;
+        } catch {
+          return false;
+        }
+      });
+  });
+
 const checks: Check[] = [
   { id: 1, label: "Competition rules complete; verify passes (only §0.1b warnings)", kind: "auto", pass: rulesOk, detail: rulesOk ? "verify:competition-rules ok" : "missing implementation references" },
   { id: 2, label: "data/eligible-tokens.json built (CMC-resolved contracts)", kind: "auto", pass: existsSync(eligiblePath), detail: existsSync(eligiblePath) ? eligiblePath : "run pnpm build:eligible-tokens (needs CMC_API_KEY)" },
   { id: 3, label: "TWAK wallet + on-chain registration vs 0x212c…aed5", kind: "manual", pass: envSet("REGISTRATION_TX_HASH"), detail: envSet("REGISTRATION_TX_HASH") ? `tx ${process.env.REGISTRATION_TX_HASH}` : "run `twak compete register`; set REGISTRATION_TX_HASH" },
-  { id: 4, label: "Agent address submitted on DoraHacks with strategy explanation", kind: "manual", pass: false, detail: "submit on DoraHacks; confirm manually" },
-  { id: 5, label: "Wallet funded: eligible stables + native BNB gas reserve", kind: "manual", pass: false, detail: "fund the TWAK wallet; confirm manually" },
+  { id: 4, label: "Agent address submitted on DoraHacks with strategy explanation", kind: "manual", pass: envTrue("DORAHACKS_SUBMITTED"), detail: envTrue("DORAHACKS_SUBMITTED") ? "operator confirmed via DORAHACKS_SUBMITTED" : "submit on DoraHacks; set DORAHACKS_SUBMITTED=true" },
+  { id: 5, label: "Wallet funded: eligible stables + native BNB gas reserve", kind: "manual", pass: envTrue("WALLET_FUNDED_CONFIRMED"), detail: envTrue("WALLET_FUNDED_CONFIRMED") ? "operator verified on-chain balances" : "verify eligible stables + BNB gas; set WALLET_FUNDED_CONFIRMED=true" },
   { id: 6, label: "CMC perception live (key wired end-to-end through CmcClient)", kind: "auto", pass: cmcWiringProven, detail: cmcWiringProven ? `check:cmc PASS (${cmcWiring?.surfaces.filter((s) => s.ok).length}/${cmcWiring?.surfaces.length} surfaces ok)` : "run pnpm check:cmc with a real CMC_API_KEY (proves key, not just presence)" },
   { id: 7, label: "x402 request paid; receipt logged; used in a decision", kind: "manual", pass: envSet("CMC_X402_ENDPOINT"), detail: envSet("CMC_X402_ENDPOINT") ? "x402 endpoint configured" : "configure CMC_X402_ENDPOINT + TWAK x402" },
   { id: 8, label: "Full gate chain runs on a real candidate", kind: "auto", pass: envSet("CMC_API_KEY"), detail: "pnpm run:bsc-agent exercises the chain on real CMC data" },
-  { id: 9, label: "TWAK signs a real PancakeSwap spot swap; BSC tx on /bsc/proof", kind: "manual", pass: envSet("TWAK_CONFIG_PATH"), detail: envSet("TWAK_CONFIG_PATH") ? "TWAK configured — execute a $5 rehearsal swap" : "set TWAK_CONFIG_PATH; execute a rehearsal swap" },
-  { id: 10, label: "Watchdog executes at least one real exit", kind: "manual", pass: false, detail: "verify a stop exit during the rehearsal" },
-  { id: 11, label: "Hourly snapshot job writes correct USD valuations", kind: "auto", pass: process.env.HOURLY_SNAPSHOT_ENABLED !== "false", detail: "worker writes .snapshots.jsonl each hour" },
-  { id: 12, label: "Kill-switch tested live from a phone; revocation attempted", kind: "manual", pass: envSet("KILL_SWITCH_TOKEN"), detail: envSet("KILL_SWITCH_TOKEN") ? "KILL_SWITCH_TOKEN set — test POST /kill from a phone" : "set KILL_SWITCH_TOKEN" },
-  { id: 13, label: "Restart-and-reconcile tested live (no duplicate trade)", kind: "manual", pass: false, detail: "kill the worker mid-run; verify RECOVERY_REPORT + no duplicate" },
+  { id: 9, label: "TWAK signs a real aggregated spot swap; BSC tx on /bsc/proof", kind: "auto", pass: Boolean(liveSwapEvidence), detail: liveSwapEvidence ? `audit tx ${String(liveSwapEvidence.output?.txHash)}` : "execute a real TWAK rehearsal swap" },
+  { id: 10, label: "Watchdog executes at least one real exit", kind: "auto", pass: Boolean(watchdogExitEvidence), detail: watchdogExitEvidence ? `audit tx ${String(watchdogExitEvidence.output?.txHash)}` : "verify a stop exit during the rehearsal" },
+  { id: 11, label: "Hourly snapshot job writes correct USD valuations", kind: "auto", pass: snapshotEvidence, detail: snapshotEvidence ? "positive USD valuation row found" : "no positive .snapshots.jsonl valuation found" },
+  { id: 12, label: "Kill-switch tested live from a phone; revocation attempted", kind: "manual", pass: envTrue("KILL_SWITCH_LIVE_TEST_CONFIRMED"), detail: envTrue("KILL_SWITCH_LIVE_TEST_CONFIRMED") ? "operator confirmed live authenticated test" : "test POST /kill; set KILL_SWITCH_LIVE_TEST_CONFIRMED=true" },
+  { id: 13, label: "Restart-and-reconcile tested live (no duplicate trade)", kind: "auto", pass: Boolean(recoveryEvidence), detail: recoveryEvidence ? "audit shows pending>0 → confirmed_filled with requiresReview=false" : "no successful pending-tx recovery evidence found" },
   { id: 14, label: "Calibration re-run on fresh data", kind: "auto", pass: calibrationPresent, detail: calibrationPresent ? "data/calibration present" : "run pnpm calibrate:edge" },
-  { id: 15, label: "Alerts received on the user's phone (incl. trade-at-risk)", kind: "manual", pass: envSet("ALERT_WEBHOOK_URL"), detail: envSet("ALERT_WEBHOOK_URL") ? "ALERT_WEBHOOK_URL set — confirm a test alert arrives" : "set ALERT_WEBHOOK_URL" },
+  { id: 15, label: "Alerts received on the user's phone (incl. trade-at-risk)", kind: "manual", pass: envTrue("ALERTS_PHONE_CONFIRMED"), detail: envTrue("ALERTS_PHONE_CONFIRMED") ? "operator confirmed phone delivery" : "confirm delivery; set ALERTS_PHONE_CONFIRMED=true" },
 ];
 
 const autoChecks = checks.filter((c) => c.kind === "auto");
