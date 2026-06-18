@@ -229,6 +229,22 @@ describe("evaluateCandidate — governor + micro-scout", () => {
     ).toBe(0);
   });
 
+  it("requests a non-zero slippage tolerance (buffer over modeled impact, capped at policy max)", () => {
+    // Deep pool → modeled impact ~0bps; the tolerance must still carry the buffer so
+    // the swap does not revert on block-to-block movement (was effectively 0).
+    const r = evaluateCandidate(candidate(), ctx());
+    expect(r.intent?.slippageBps).toBe(DEFAULT_RISK_CONFIG.swapSlippageBufferBps);
+    expect(r.intent!.slippageBps).toBeGreaterThan(0);
+    expect(r.intent!.slippageBps).toBeLessThanOrEqual(twakPolicy.maxSlippageBps);
+
+    // The Micro-Scout (tonight's rehearsal trade) likewise gets a real, non-zero tolerance.
+    const scout = evaluateCandidate(
+      candidate({ symbol: "USDC", tokenInAddress: USDT, tokenOutAddress: USDC, isMicroScout: true }),
+      ctx(),
+    );
+    expect(scout.intent!.slippageBps).toBeGreaterThan(0);
+  });
+
   it("approves a stable↔stable Micro-Scout, exempt from net-edge", () => {
     const scout = candidate({
       symbol: "USDC",

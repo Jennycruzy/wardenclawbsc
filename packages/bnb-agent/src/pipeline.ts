@@ -420,7 +420,14 @@ export function evaluateCandidate(input: CandidateInput, ctx: PipelineContext): 
     isInfiniteApproval: false,
     approvalAmount: positionSizeUsd,
     mandateAmount: positionSizeUsd,
-    slippageBps: Math.round(slippageBps),
+    // Slippage TOLERANCE = modeled price impact + a movement buffer, capped at the
+    // policy max. Without the buffer the tolerance rounds to ~0 for small trades and
+    // the swap reverts on any block-to-block move. Execution-safety only; the net-edge
+    // gate already used the raw modeled impact for profitability above.
+    slippageBps: Math.min(
+      ctx.twakPolicy.maxSlippageBps,
+      Math.round(slippageBps) + ctx.config.swapSlippageBufferBps,
+    ),
     isNonSpot: input.isNonSpot ?? false,
     decodedAction: "enter_long",
     mandateAction: "enter_long",

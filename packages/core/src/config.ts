@@ -77,6 +77,12 @@ export interface RiskConfig {
   walletFloorFraction: number; // expected move must exceed this × measured real round-trip
   dustRoundTripCeilingBps: number; // measured real round-trip above this = dust (notional too small vs fixed cost)
   maxSlippageBps: number;
+  // Buffer added on top of the modeled price impact to form the swap's slippage
+  // TOLERANCE (the min-out bound TWAK signs against). The modeled impact is tiny for
+  // small trades, so without this the tolerance rounds to ~0 and swaps revert on any
+  // block-to-block movement. Capped by maxSlippageBps. This is execution safety only;
+  // it does NOT affect the profitability/net-edge gate (which uses modeled friction).
+  swapSlippageBufferBps: number;
   shadowFillToleranceBps: number;
   kellyFraction: number;
   calibrationMaxAgeDays: number;
@@ -149,6 +155,7 @@ export const DEFAULT_RISK_CONFIG: RiskConfig = {
   walletFloorFraction: 0.75,
   dustRoundTripCeilingBps: 350,
   maxSlippageBps: 50,
+  swapSlippageBufferBps: 25,
   shadowFillToleranceBps: 40,
   kellyFraction: 0.25,
   calibrationMaxAgeDays: 7,
@@ -260,6 +267,7 @@ export function loadRiskConfig(env: Record<string, string | undefined> = {}): Ri
     walletFloorFraction: num("WALLET_FLOOR_FRACTION", d.walletFloorFraction),
     dustRoundTripCeilingBps: num("DUST_ROUND_TRIP_CEILING_BPS", d.dustRoundTripCeilingBps),
     maxSlippageBps: num("MAX_SLIPPAGE_BPS", d.maxSlippageBps),
+    swapSlippageBufferBps: num("SWAP_SLIPPAGE_BUFFER_BPS", d.swapSlippageBufferBps),
     shadowFillToleranceBps: num("SHADOW_FILL_TOLERANCE_BPS", d.shadowFillToleranceBps),
     kellyFraction: num("KELLY_FRACTION", d.kellyFraction),
     calibrationMaxAgeDays: num("CALIBRATION_MAX_AGE_DAYS", d.calibrationMaxAgeDays),
