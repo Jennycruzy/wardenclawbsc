@@ -160,7 +160,12 @@ function writeHeartbeat(mode: string, cyclesRun: number): void {
   mkdirSync(RUNTIME_DIR, { recursive: true });
   writeFileSync(
     join(RUNTIME_DIR, "heartbeat.json"),
-    JSON.stringify({ lastBeatIso: new Date().toISOString(), mode, cyclesRun }),
+    JSON.stringify({
+      lastBeatIso: new Date().toISOString(),
+      mode,
+      cyclesRun,
+      expectedIntervalSeconds: intervalMs / 1000,
+    }),
     "utf8",
   );
 }

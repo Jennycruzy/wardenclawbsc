@@ -36,7 +36,9 @@ import { readHeartbeat, writeKillFlag, readKillFlag } from "./state.js";
 })();
 
 const PORT = Number(process.env.API_PORT ?? "4000");
-const HEARTBEAT_INTERVAL_MS = Number(process.env.HEARTBEAT_INTERVAL_SECONDS ?? "60") * 1000;
+const FALLBACK_HEARTBEAT_INTERVAL_MS =
+  Number(process.env.HEARTBEAT_INTERVAL_SECONDS ?? process.env.WORKER_INTERVAL_SECONDS ?? "300") *
+  1000;
 const killSwitch = new KillSwitch(process.env.KILL_SWITCH_TOKEN);
 
 const app = Fastify({ logger: { level: process.env.LOG_LEVEL ?? "info" } });
@@ -62,7 +64,13 @@ async function checkRegistrationReminder(): Promise<void> {
 function heartbeatStale(): boolean {
   const hb = readHeartbeat();
   if (!hb) return false;
-  return Date.now() - Date.parse(hb.lastBeatIso) > HEARTBEAT_INTERVAL_MS * 3;
+  const advertisedMs =
+    typeof hb.expectedIntervalSeconds === "number" &&
+    Number.isFinite(hb.expectedIntervalSeconds) &&
+    hb.expectedIntervalSeconds > 0
+      ? hb.expectedIntervalSeconds * 1000
+      : FALLBACK_HEARTBEAT_INTERVAL_MS;
+  return Date.now() - Date.parse(hb.lastBeatIso) > advertisedMs * 3;
 }
 
 app.get("/health", async () => {
@@ -75,6 +83,7 @@ app.get("/health", async () => {
     lastBeatIso: hb?.lastBeatIso ?? null,
     cyclesRun: hb?.cyclesRun ?? 0,
     mode: hb?.mode ?? "unknown",
+    expectedIntervalSeconds: hb?.expectedIntervalSeconds ?? null,
   };
 });
 

@@ -52,6 +52,8 @@ export interface HeartbeatState {
   lastBeatIso: string;
   mode: string;
   cyclesRun: number;
+  /** Worker-advertised main-loop cadence; absent on legacy heartbeat files. */
+  expectedIntervalSeconds?: number;
 }
 
 export function writeHeartbeat(state: HeartbeatState): void {
