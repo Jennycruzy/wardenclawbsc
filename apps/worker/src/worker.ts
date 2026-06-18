@@ -24,6 +24,7 @@ import {
   buildCalibrationReport,
   loadRiskConfig,
   reconcile,
+  recordPending,
   valueHoldings,
   initTrailingStop,
   evaluateWatchTick,
@@ -64,6 +65,7 @@ import {
   type BscScoreInputs,
   type CalibrationReport,
   type PendingMandate,
+  type PendingSample,
   type Holding,
   type OpenPosition,
   type TrailingStopConfig,
@@ -158,6 +160,28 @@ function loadPending(): PendingMandate[] {
   } catch {
     return [];
   }
+}
+
+// Forward calibration collector: the worker records each scored candidate's price
+// as a pending observation; `pnpm collect:calibration` matures these into real
+// { score, realizedMoveBps, win } samples once the holding horizon elapses. Opt-in
+// via CALIBRATION_COLLECT_ENABLED — purely a recording side-channel that never
+// touches a trade decision.
+const CALIBRATION_DIR = join(ROOT, "data", "calibration");
+const PENDING_SAMPLES_FILE = join(CALIBRATION_DIR, "pending-samples.json");
+
+function loadPendingSamples(): PendingSample[] {
+  if (!existsSync(PENDING_SAMPLES_FILE)) return [];
+  try {
+    return JSON.parse(readFileSync(PENDING_SAMPLES_FILE, "utf8")) as PendingSample[];
+  } catch {
+    return [];
+  }
+}
+
+function savePendingSamples(samples: PendingSample[]): void {
+  mkdirSync(CALIBRATION_DIR, { recursive: true });
+  writeFileSync(PENDING_SAMPLES_FILE, JSON.stringify(samples, null, 2), "utf8");
 }
 
 const POSITIONS_FILE = join(RUNTIME_DIR, "positions.json");
@@ -1203,6 +1227,28 @@ async function main(): Promise<void> {
           ctx,
         );
         evaluated.push({ result, token: spec.token, tools: spec.tools, ts: spec.quote.lastUpdated, price: spec.quote.priceUsd, atrPct });
+      }
+
+      // Forward calibration: record each scored candidate's price so the realized
+      // move can be measured once the horizon elapses. Side-channel only — wrapped
+      // so a recording fault can never interrupt trading.
+      if (process.env.CALIBRATION_COLLECT_ENABLED === "true") {
+        try {
+          let pendingSamples = loadPendingSamples();
+          const scoredAtIso = new Date().toISOString();
+          for (const e of evaluated) {
+            pendingSamples = recordPending(pendingSamples, {
+              symbol: e.token.symbol,
+              family: e.result.signalFamily,
+              score: e.result.score,
+              priceAtScore: e.price,
+              scoredAtIso,
+            });
+          }
+          savePendingSamples(pendingSamples);
+        } catch (err) {
+          console.warn(`[worker] calibration sample recording skipped: ${(err as Error).message}`);
+        }
       }
 
       // Rank approved candidates, then let the scheduler decide whether to attack,

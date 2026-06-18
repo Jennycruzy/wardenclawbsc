@@ -14,6 +14,7 @@
     "verify:competition-rules": "tsx scripts/verify-competition-rules.ts",
     "build:eligible-tokens": "tsx scripts/build-eligible-tokens.ts",
     "calibrate:edge": "tsx scripts/calibrate-edge.ts",
+    "collect:calibration": "tsx scripts/collect-calibration.ts",
     "run:bsc-agent": "tsx scripts/run-bsc-agent.ts",
     "demo:twak-refusal": "tsx scripts/demo-twak-refusal.ts",
     "backtest:bsc": "tsx scripts/backtest-bsc.ts",

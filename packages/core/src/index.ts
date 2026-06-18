@@ -17,6 +17,7 @@ export * from "./weekBudget.js";
 export * from "./weekLedger.js";
 export * from "./regimeAnalyst.js";
 export * from "./edgeCalibration.js";
+export * from "./calibrationCollector.js";
 export * from "./eligibleTokens.js";
 export * from "./signalScorer.js";
 export * from "./auditLogger.js";
