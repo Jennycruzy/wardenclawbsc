@@ -1162,7 +1162,10 @@ async function main(): Promise<void> {
       await sleep(watchIntervalMs);
     }
   }
-  void runWatchLoop();
+  // Production runs forever and needs the concurrent fast watch loop. Bounded
+  // rehearsal/test runs exit after maxCycles; starting the infinite watcher there
+  // would keep Node alive after the requested cycles completed.
+  if (maxCycles === 0) void runWatchLoop();
 
   let spentTodayUsd = 0;
   let cycles = 0;
