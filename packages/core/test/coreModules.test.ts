@@ -64,7 +64,7 @@ describe("recovery reconciliation", () => {
   };
 
   it("resolves a confirmed tx as filled", async () => {
-    const pending: PendingMandate[] = [{ mandateId: "m1", txHash: "0xconfirmed", status: "submitted" }];
+    const pending: PendingMandate[] = [{ mandateId: "m1", txHash: "0xconfirmed", status: "submitted", action: "scout" }];
     const report = await reconcile(pending, lookup);
     expect(report.resolutions[0]!.resolution).toBe("confirmed_filled");
   });
@@ -76,10 +76,11 @@ describe("recovery reconciliation", () => {
     expect(report.requiresReview).toBe(true);
   });
 
-  it("treats a not-found tx as safe to re-evaluate", async () => {
+  it("does not retry a submitted tx whose receipt is unavailable", async () => {
     const pending: PendingMandate[] = [{ mandateId: "m3", txHash: "0xmissing", status: "submitted" }];
     const report = await reconcile(pending, lookup);
-    expect(report.resolutions[0]!.resolution).toBe("not_found_safe_to_retry");
+    expect(report.resolutions[0]!.resolution).toBe("needs_manual_review");
+    expect(report.requiresReview).toBe(true);
   });
 
   it("prevents a duplicate via repeated nonce", async () => {

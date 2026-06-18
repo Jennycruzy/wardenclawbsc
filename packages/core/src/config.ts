@@ -207,7 +207,7 @@ export function loadRiskConfig(env: Record<string, string | undefined> = {}): Ri
   };
 
   const d = DEFAULT_RISK_CONFIG;
-  return {
+  const loaded: RiskConfig = {
     startingCapitalUsd: num("STARTING_CAPITAL_USD", d.startingCapitalUsd),
     gasReserveUsd: num("GAS_RESERVE_USD", d.gasReserveUsd),
     maxConcurrentPositions: num("MAX_CONCURRENT_POSITIONS", d.maxConcurrentPositions),
@@ -278,4 +278,39 @@ export function loadRiskConfig(env: Record<string, string | undefined> = {}): Ri
     allowInfiniteApprovals: bool("ALLOW_INFINITE_APPROVALS", d.allowInfiniteApprovals),
     approvalBufferBps: num("APPROVAL_BUFFER_BPS", d.approvalBufferBps),
   };
+
+  const requireRange = (key: keyof RiskConfig, min: number, max: number): void => {
+    const value = loaded[key];
+    if (typeof value !== "number" || value < min || value > max) {
+      throw new Error(`Unsafe risk config ${String(key)}=${String(value)} (expected ${min}..${max})`);
+    }
+  };
+
+  requireRange("startingCapitalUsd", 0.01, Number.MAX_SAFE_INTEGER);
+  requireRange("gasReserveUsd", 0, loaded.startingCapitalUsd);
+  requireRange("maxConcurrentPositions", 1, 10);
+  requireRange("perTradeRiskPct", 0.01, 10);
+  requireRange("maxPositionPct", 0.01, 100);
+  requireRange("competitionDqDrawdownPct", 0.01, 100);
+  requireRange("internalWindowDrawdownPct", 0.01, loaded.competitionDqDrawdownPct);
+  requireRange("maxDailyDrawdownPct", 0.01, loaded.internalWindowDrawdownPct);
+  requireRange("softDrawdownPct", 0.01, loaded.internalWindowDrawdownPct);
+  requireRange("dangerPortfolioValueUsd", 0, loaded.startingCapitalUsd);
+  requireRange("maxSlippageBps", 1, 500);
+  requireRange("swapSlippageBufferBps", 0, loaded.maxSlippageBps);
+  requireRange("walletFloorFraction", 0, 2);
+  requireRange("survivalLossStreak", 1, 20);
+
+  if (loaded.softDrawdownPct > loaded.maxDailyDrawdownPct) {
+    throw new Error(
+      `Unsafe risk config softDrawdownPct=${loaded.softDrawdownPct} exceeds maxDailyDrawdownPct=${loaded.maxDailyDrawdownPct}`,
+    );
+  }
+  if (loaded.minTradesPerDay > loaded.targetTradesPerDay || loaded.targetTradesPerDay > loaded.maxTradesPerDay) {
+    throw new Error(
+      `Unsafe trade-frequency config: require minTradesPerDay <= targetTradesPerDay <= maxTradesPerDay`,
+    );
+  }
+
+  return loaded;
 }

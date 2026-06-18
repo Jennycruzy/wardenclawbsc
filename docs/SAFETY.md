@@ -20,6 +20,9 @@ the signer (defense in depth). Every refusal carries a deterministic reject code
 - Never hold native BNB or WBNB as a position → `REJECT_HELD_NATIVE_OR_WBNB`.
 - Allowlisted router/spender/contract only.
 - No infinite approvals by default; approval ≤ mandate amount + small buffer.
+- On-chain allowance monitoring checks the actual TWAK aggregator/token spender
+  (plus spenders discovered from receipt `Approval` events), not only the
+  declarative PancakeSwap intent.
 - Per-trade and daily spend caps; slippage cap.
 - The decoded transaction action must match the approved mandate.
 - No trade on stale market data or stale calibration.
@@ -31,7 +34,9 @@ the signer (defense in depth). Every refusal carries a deterministic reject code
   competition's simulated cost + margin.
 - **Volatility-derived stops; size derived from the stop.** Incoherent (too-small,
   too-costly) sizes are skipped, not forced.
-- **Three-layer drawdown governor:** never approaches the disqualification cap;
+- **Three-layer drawdown governor:** whole-window and daily drawdown are marked
+  to market so unrealized losses engage the brakes; the internal budget remains
+  well inside the competition disqualification cap.
   spends a budgeted internal window allowance; de-risks automatically.
 - **Shadow-fill guard:** aborts a swap whose simulated output deviates beyond
   tolerance (thin liquidity / moved price / sandwich risk).
@@ -39,7 +44,9 @@ the signer (defense in depth). Every refusal carries a deterministic reject code
 ## Operational safety
 
 - Phone-reachable, authenticated **kill-switch**; alerts for every key event.
-- **Crash-recovery reconciliation** before any trade — no duplicate trades.
+- **Crash-recovery reconciliation** before any trade — a durable local fill
+  commit must agree with the on-chain receipt and position state. Missing hashes
+  or receipts halt for review instead of being retried.
 - **RPC failover** — never hang on a dead endpoint.
 - **Dress-rehearsal gate** — live mode refuses to start unless §0.12 passed.
 

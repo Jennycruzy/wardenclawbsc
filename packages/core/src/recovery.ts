@@ -12,7 +12,18 @@ export interface PendingMandate {
   status: "submitted" | "pending_build" | "unknown";
   /** Nonce used for the submitted tx, if any. */
   nonce?: number;
+  /** What the mandate does. Lets recovery tell a confirmed fill whose local state
+   *  was recorded from one that wasn't (an untracked position). */
+  action?: "entry" | "scout" | "exit";
 }
+
+/**
+ * Whether a confirmed fill's effect is already reflected in local state — an entry
+ * has a tracked position, an exit removed it. When false for an entry/exit, the fill
+ * landed on chain but the worker crashed before recording it, so the position is
+ * untracked (no stop) and the book is wrong: that must go to manual review, not clear.
+ */
+export type RecordedCheck = (m: PendingMandate) => boolean;
 
 export interface ChainTxState {
   found: boolean;
@@ -27,9 +38,7 @@ export interface RecoveryResolution {
   resolution:
     | "confirmed_filled"
     | "confirmed_failed"
-    | "not_found_safe_to_retry"
-    | "needs_manual_review"
-    | "never_broadcast";
+    | "needs_manual_review";
   detail: string;
 }
 
@@ -48,6 +57,7 @@ export interface RecoveryReport {
 export async function reconcile(
   pending: PendingMandate[],
   lookup: ChainTxLookup,
+  isRecorded: RecordedCheck = () => true,
 ): Promise<RecoveryReport> {
   const resolutions: RecoveryResolution[] = [];
   let duplicatesPrevented = 0;
@@ -57,10 +67,14 @@ export async function reconcile(
 
   for (const m of pending) {
     if (!m.txHash) {
+      // The pending marker is written before TWAK is called. A crash can therefore
+      // happen after TWAK broadcast but before the CLI returns the hash. Absence of
+      // a locally persisted hash is not proof that nothing was broadcast.
+      requiresReview = true;
       resolutions.push({
         mandateId: m.mandateId,
-        resolution: "never_broadcast",
-        detail: "no txHash recorded; safe to re-evaluate as a fresh candidate",
+        resolution: "needs_manual_review",
+        detail: "pending mandate has no txHash; broadcast status is unknown — reconcile wallet nonce/balances before resuming",
       });
       continue;
     }
@@ -80,11 +94,29 @@ export async function reconcile(
     }
 
     const state = await lookup(m.txHash);
-    if (state.found && state.confirmed) {
+    if (state.found && state.confirmed && state.success) {
+      // The tx filled on chain. Safe to clear only if its effect is already in local
+      // state; an unrecorded entry/exit fill means an untracked position + wrong book.
+      const effectRecorded = m.action !== undefined && isRecorded(m);
+      if (!effectRecorded) {
+        requiresReview = true;
+        resolutions.push({
+          mandateId: m.mandateId,
+          resolution: "needs_manual_review",
+          detail: `tx ${m.txHash} (${m.action ?? "unknown action"}) filled on chain but its local state commit cannot be proven — reconcile position/book before resuming`,
+        });
+      } else {
+        resolutions.push({
+          mandateId: m.mandateId,
+          resolution: "confirmed_filled",
+          detail: `tx ${m.txHash} confirmed and filled (${m.action ?? "unknown action"})`,
+        });
+      }
+    } else if (state.found && state.confirmed && !state.success) {
       resolutions.push({
         mandateId: m.mandateId,
-        resolution: state.success ? "confirmed_filled" : "confirmed_failed",
-        detail: `tx ${m.txHash} confirmed (success=${state.success ?? false})`,
+        resolution: "confirmed_failed",
+        detail: `tx ${m.txHash} confirmed but reverted (success=false)`,
       });
     } else if (state.found && !state.confirmed) {
       requiresReview = true;
@@ -94,10 +126,14 @@ export async function reconcile(
         detail: `tx ${m.txHash} seen but unconfirmed; wait, do not resubmit`,
       });
     } else {
+      // A null receipt is ambiguous: the tx can still be pending, dropped from this
+      // RPC's mempool, or temporarily unavailable. Never convert ambiguity into a
+      // fresh submission because that can duplicate the trade.
+      requiresReview = true;
       resolutions.push({
         mandateId: m.mandateId,
-        resolution: "not_found_safe_to_retry",
-        detail: `tx ${m.txHash} not found on chain; never landed, safe to re-evaluate`,
+        resolution: "needs_manual_review",
+        detail: `tx ${m.txHash} has no receipt; it may be pending/dropped or the RPC may be inconsistent — do not resubmit`,
       });
     }
   }

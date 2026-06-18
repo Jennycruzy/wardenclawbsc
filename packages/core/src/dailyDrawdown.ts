@@ -13,7 +13,7 @@ export interface DailyAnchor {
   /** UTC calendar day (YYYY-MM-DD) the peak belongs to. */
   dayIso: string;
   /** Highest portfolio value seen so far today, same valuation basis as the
-   *  whole-window drawdown (book scored value). */
+   *  whole-window drawdown (marked-to-market wallet value). */
   peakValueUsd: number;
 }
 

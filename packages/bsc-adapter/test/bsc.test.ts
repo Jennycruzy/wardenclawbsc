@@ -9,6 +9,8 @@ import {
   findBySymbol,
   STARTER_TOKENS,
   PANCAKE_V2_ROUTER,
+  TWAK_AGGREGATOR_ROUTER,
+  TWAK_TOKEN_SPENDER,
   type RpcProbe,
 } from "../src/index.js";
 
@@ -84,5 +86,12 @@ describe("eligible-token loader", () => {
 
   it("exposes the canonical PancakeSwap V2 router", () => {
     expect(PANCAKE_V2_ROUTER).toMatch(/^0x[0-9a-f]{40}$/);
+  });
+
+  it("exposes the observed TWAK aggregator and token spender separately", () => {
+    expect(TWAK_AGGREGATOR_ROUTER).toMatch(/^0x[0-9a-f]{40}$/);
+    expect(TWAK_TOKEN_SPENDER).toMatch(/^0x[0-9a-f]{40}$/);
+    expect(TWAK_AGGREGATOR_ROUTER).not.toBe(TWAK_TOKEN_SPENDER);
+    expect(TWAK_TOKEN_SPENDER).not.toBe(PANCAKE_V2_ROUTER);
   });
 });

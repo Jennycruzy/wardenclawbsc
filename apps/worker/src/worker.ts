@@ -15,7 +15,7 @@
  * Env: WORKER_INTERVAL_SECONDS (default 300), WORKER_MAX_CYCLES (default 0 = forever).
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { config as loadDotenv } from "dotenv";
 import {
@@ -51,6 +51,9 @@ import {
   updateDailyDrawdown,
   serializeDailyAnchor,
   parseDailyAnchor,
+  updateWindowDrawdown,
+  serializeWindowDrawdownAnchor,
+  parseWindowDrawdownAnchor,
   initRegimeState,
   evaluateRegime,
   serializeRegimeState,
@@ -80,6 +83,7 @@ import {
   type WeekLedger,
   type WeekBudgetConfig,
   type DailyAnchor,
+  type WindowDrawdownAnchor,
 } from "@wardenclaw/core";
 import {
   CmcClient,
@@ -94,6 +98,8 @@ import {
   NoPoolError,
   PANCAKE_V2_ROUTER,
   STARTER_MAJORS,
+  TWAK_AGGREGATOR_ROUTER,
+  TWAK_TOKEN_SPENDER,
 } from "@wardenclaw/bsc-adapter";
 import {
   evaluateCandidate,
@@ -161,18 +167,22 @@ function writeHeartbeat(mode: string, cyclesRun: number): void {
 
 const PENDING_FILE = join(RUNTIME_DIR, "pending.json");
 
+function writeRuntimeFileAtomic(path: string, content: string): void {
+  mkdirSync(dirname(path), { recursive: true });
+  const tmp = `${path}.${process.pid}.tmp`;
+  writeFileSync(tmp, content, "utf8");
+  renameSync(tmp, path);
+}
+
 function loadPending(): PendingMandate[] {
   if (!existsSync(PENDING_FILE)) return [];
-  try {
-    return JSON.parse(readFileSync(PENDING_FILE, "utf8")) as PendingMandate[];
-  } catch {
-    return [];
-  }
+  const parsed = JSON.parse(readFileSync(PENDING_FILE, "utf8")) as unknown;
+  if (!Array.isArray(parsed)) throw new Error("runtime pending.json is corrupt");
+  return parsed as PendingMandate[];
 }
 
 function savePending(list: PendingMandate[]): void {
-  mkdirSync(RUNTIME_DIR, { recursive: true });
-  writeFileSync(PENDING_FILE, JSON.stringify(list, null, 2), "utf8");
+  writeRuntimeFileAtomic(PENDING_FILE, JSON.stringify(list, null, 2));
 }
 
 /**
@@ -191,6 +201,29 @@ function markPending(entry: PendingMandate): void {
 function clearPending(mandateId: string): void {
   if (!existsSync(PENDING_FILE)) return;
   savePending(loadPending().filter((m) => m.mandateId !== mandateId));
+}
+
+interface RecordedFill {
+  mandateId: string;
+  action: "entry" | "scout" | "exit";
+  txHash: string;
+  recordedAtIso: string;
+}
+
+const RECORDED_FILLS_FILE = join(RUNTIME_DIR, "recorded-fills.json");
+
+function loadRecordedFills(): RecordedFill[] {
+  if (!existsSync(RECORDED_FILLS_FILE)) return [];
+  const parsed = JSON.parse(readFileSync(RECORDED_FILLS_FILE, "utf8")) as unknown;
+  if (!Array.isArray(parsed)) throw new Error("runtime recorded-fills.json is corrupt");
+  return parsed as RecordedFill[];
+}
+
+/** Durable local commit marker written only after every state effect of a fill. */
+function markFillRecorded(fill: Omit<RecordedFill, "recordedAtIso">): void {
+  const list = loadRecordedFills().filter((x) => x.mandateId !== fill.mandateId);
+  list.push({ ...fill, recordedAtIso: new Date().toISOString() });
+  writeRuntimeFileAtomic(RECORDED_FILLS_FILE, JSON.stringify(list.slice(-200), null, 2));
 }
 
 /**
@@ -214,6 +247,77 @@ async function lookupTx(txHash: string): Promise<ChainTxState> {
     return { found: true, confirmed, success: receipt.status === "0x1" };
   } catch {
     return { found: false, confirmed: false };
+  }
+}
+
+/** Best-effort raw JSON-RPC call against the first configured BSC endpoint. */
+async function rpcCall(method: string, params: unknown[]): Promise<unknown> {
+  const rpc = (process.env.BSC_RPC_URLS ?? "").split(",")[0]?.trim();
+  if (!rpc) return undefined;
+  const res = await fetch(rpc, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
+  });
+  return ((await res.json()) as { result?: unknown }).result;
+}
+
+/** Resolve the TWAK trading wallet (it holds the key; we never see it directly) from
+ *  the registration tx's sender, or an explicit WALLET_ADDRESS override. Best-effort. */
+async function resolveTradingWallet(): Promise<string | undefined> {
+  const explicit = (process.env.WALLET_ADDRESS ?? process.env.TWAK_AGENT_WALLET)?.trim();
+  if (explicit) return explicit;
+  const reg = process.env.REGISTRATION_TX_HASH?.trim();
+  if (!reg) return undefined;
+  try {
+    const tx = (await rpcCall("eth_getTransactionByHash", [reg])) as { from?: string } | undefined;
+    return tx?.from;
+  } catch {
+    return undefined;
+  }
+}
+
+// An unlimited ERC20 approval is MaxUint256 (~1.16e77). No bounded approval a $40 book
+// would ever grant approaches 2^200 (~1.6e60), so this cleanly flags the unlimited
+// pattern regardless of token decimals or price — without false-positiving on a real
+// per-trade approval. TWAK signs the approvals internally (the swap CLI takes no
+// approval bound), so this is how we verify its on-chain behavior.
+const UNLIMITED_ALLOWANCE_THRESHOLD = 2n ** 200n;
+const APPROVAL_EVENT_TOPIC = "0x8c5be1e5ebec7d5bd14f71427d1e84f3dd0314c0f7b2291e5b200ac8c7c3b925";
+
+/** ERC20 allowance(owner, spender) in raw token units, or undefined on RPC failure. */
+async function routerAllowanceRaw(token: string, owner: string, spender: string): Promise<bigint | undefined> {
+  const data = "0xdd62ed3e" + owner.slice(2).padStart(64, "0") + spender.slice(2).padStart(64, "0");
+  try {
+    const out = (await rpcCall("eth_call", [{ to: token, data }, "latest"])) as string | undefined;
+    if (!out || out === "0x") return undefined;
+    return BigInt(out);
+  } catch {
+    return undefined;
+  }
+}
+
+/** Extract token spenders revealed by Approval events in a submitted swap receipt. */
+async function approvalSpendersFromTx(txHash: string, owner: string): Promise<string[]> {
+  try {
+    const receipt = (await rpcCall("eth_getTransactionReceipt", [txHash])) as {
+      logs?: Array<{ topics?: string[] }>;
+    } | undefined;
+    const ownerTopic = `0x${owner.toLowerCase().replace(/^0x/, "").padStart(64, "0")}`;
+    const spenders = new Set<string>();
+    for (const log of receipt?.logs ?? []) {
+      const topics = log.topics ?? [];
+      if (
+        topics[0]?.toLowerCase() === APPROVAL_EVENT_TOPIC &&
+        topics[1]?.toLowerCase() === ownerTopic &&
+        /^0x[0-9a-f]{64}$/i.test(topics[2] ?? "")
+      ) {
+        spenders.add(`0x${topics[2]!.slice(-40).toLowerCase()}`);
+      }
+    }
+    return [...spenders];
+  } catch {
+    return [];
   }
 }
 
@@ -248,8 +352,7 @@ function loadOpenPositions(): OpenPosition[] {
 }
 
 function saveOpenPositions(positions: OpenPosition[]): void {
-  mkdirSync(RUNTIME_DIR, { recursive: true });
-  writeFileSync(POSITIONS_FILE, serializeOpenPositions(positions), "utf8");
+  writeRuntimeFileAtomic(POSITIONS_FILE, serializeOpenPositions(positions));
 }
 
 const SIGNAL_HISTORY_FILE = join(RUNTIME_DIR, "signalHistory.json");
@@ -287,6 +390,7 @@ function saveWeekLedger(ledger: WeekLedger): void {
 }
 
 const DAILY_ANCHOR_FILE = join(RUNTIME_DIR, "daily-drawdown.json");
+const WINDOW_DRAWDOWN_FILE = join(RUNTIME_DIR, "window-drawdown.json");
 
 /** Restore the intraday peak anchor so the daily-drawdown layer survives restarts.
  *  A stale anchor from a previous UTC day is harmless — updateDailyDrawdown resets it. */
@@ -298,6 +402,15 @@ function loadDailyAnchor(): DailyAnchor | undefined {
 function saveDailyAnchor(anchor: DailyAnchor): void {
   mkdirSync(RUNTIME_DIR, { recursive: true });
   writeFileSync(DAILY_ANCHOR_FILE, serializeDailyAnchor(anchor), "utf8");
+}
+
+function loadWindowDrawdownAnchor(): WindowDrawdownAnchor | undefined {
+  if (!existsSync(WINDOW_DRAWDOWN_FILE)) return undefined;
+  return parseWindowDrawdownAnchor(readFileSync(WINDOW_DRAWDOWN_FILE, "utf8"));
+}
+
+function saveWindowDrawdownAnchor(anchor: WindowDrawdownAnchor): void {
+  writeRuntimeFileAtomic(WINDOW_DRAWDOWN_FILE, serializeWindowDrawdownAnchor(anchor));
 }
 
 const SCOUT_RESERVE_FILE = join(RUNTIME_DIR, "scout-reserve.json");
@@ -562,7 +675,26 @@ async function main(): Promise<void> {
 
   // 1. Crash-recovery reconciliation BEFORE any trade.
   const pending = loadPending();
-  const report = await reconcile(pending, lookupTx);
+  // A confirmed fill is only safe to clear if local state already reflects it: an entry
+  // must have its tracked position, an exit must have removed it. Read positions straight
+  // from disk (the openPositions working copy is restored further below). Anything else —
+  // a confirmed entry with no position, or a confirmed exit whose position is still
+  // open — is an unrecorded fill and is escalated to manual review by reconcile().
+  const recoveredPositions = loadOpenPositions();
+  const recordedFills = new Map(loadRecordedFills().map((fill) => [fill.mandateId, fill]));
+  const isRecorded = (m: PendingMandate): boolean => {
+    const fill = recordedFills.get(m.mandateId);
+    if (!m.action || !m.txHash || fill?.action !== m.action || fill.txHash.toLowerCase() !== m.txHash.toLowerCase()) {
+      return false;
+    }
+    if (m.action === "entry") return recoveredPositions.some((p) => p.mandateId === m.mandateId);
+    if (m.action === "exit") {
+      const posId = m.mandateId.replace(/-exit$/, "");
+      return !recoveredPositions.some((p) => p.mandateId === posId);
+    }
+    return m.action === "scout";
+  };
+  const report = await reconcile(pending, lookupTx, isRecorded);
   await audit.append({
     timestamp: new Date().toISOString(),
     mandateId: "recovery",
@@ -623,6 +755,7 @@ async function main(): Promise<void> {
   let weekLedger = loadWeekLedger(weekStartIso, config.startingCapitalUsd);
   saveWeekLedger(weekLedger);
   let dailyAnchor = loadDailyAnchor();
+  let windowDrawdownAnchor = loadWindowDrawdownAnchor();
   let scoutHeldStable = loadScoutHeldStable();
   let lossStreak = loadLossStreak();
   let book = loadBook();
@@ -690,6 +823,55 @@ async function main(): Promise<void> {
   if (!usdt) throw new Error("USDT not found in eligible set — cannot route stable legs.");
   const usdc = loaded.tokens.find((t) => t.symbol === "USDC");
   if (!usdc) throw new Error("USDC not found in eligible set — cannot run the compliance scout.");
+
+  // Approval-safety monitor: TWAK signs swaps (and their approvals) internally, so our
+  // "no infinite approval" policy is only enforced on the intent we build, not on chain.
+  // Verify TWAK's actual behavior by reading the router's allowance and alerting (once)
+  // if it is effectively unlimited — the operator can then revoke it (approve spender 0).
+  const tradingWallet = await resolveTradingWallet();
+  const approvalAlerted = new Set<string>();
+  const approvalSpenders = new Set(
+    [
+      PANCAKE_V2_ROUTER,
+      TWAK_AGGREGATOR_ROUTER,
+      TWAK_TOKEN_SPENDER,
+      ...(process.env.TWAK_APPROVAL_SPENDERS ?? "").split(","),
+    ]
+      .map((x) => x.trim().toLowerCase())
+      .filter((x) => /^0x[0-9a-f]{40}$/.test(x)),
+  );
+  if (!tradingWallet) {
+    console.warn("[worker] approval monitor disabled — set WALLET_ADDRESS or REGISTRATION_TX_HASH to enable.");
+  }
+  async function rememberApprovalSpenders(txHash: string): Promise<void> {
+    if (!tradingWallet) return;
+    for (const spender of await approvalSpendersFromTx(txHash, tradingWallet)) {
+      approvalSpenders.add(spender);
+    }
+  }
+  async function checkRouterApprovals(): Promise<void> {
+    if (!tradingWallet) return;
+    const targets = [
+      { symbol: "USDT", address: usdt!.bscContractAddress },
+      ...openPositions.map((p) => ({ symbol: p.symbol, address: p.tokenOutAddress })),
+    ];
+    for (const t of targets) {
+      for (const spender of approvalSpenders) {
+        const alertKey = `${t.address.toLowerCase()}:${spender}`;
+        if (approvalAlerted.has(alertKey)) continue;
+        const allowance = await routerAllowanceRaw(t.address, tradingWallet, spender);
+        if (allowance !== undefined && allowance > UNLIMITED_ALLOWANCE_THRESHOLD) {
+          approvalAlerted.add(alertKey); // alert once per run per token+spender
+          await sendAlert(process.env.ALERT_WEBHOOK_URL, {
+            reason: "execution_failure",
+            message: `Unlimited ${t.symbol} approval detected for spender ${spender} on ${tradingWallet}. Revoke that exact spender (approve 0) before resuming live trading.`,
+            timestamp: new Date().toISOString(),
+          });
+          console.warn(`[worker] UNLIMITED ${t.symbol} approval detected for spender ${spender}.`);
+        }
+      }
+    }
+  }
 
   const twakPolicy: TwakPolicyConfig = {
     requiredChainId: 56,
@@ -849,11 +1031,16 @@ async function main(): Promise<void> {
           mandateId: pos.mandateId,
         };
         const exitMandateId = `${pos.mandateId}-exit`;
+        let recordedExitTxHash: string | undefined;
         try {
           // Mark the exit in-flight before signing so a crash mid-exit is recoverable.
-          if (executor) markPending({ mandateId: exitMandateId, status: "pending_build" });
+          if (executor) markPending({ mandateId: exitMandateId, status: "pending_build", action: "exit" });
           const outcome = executor ? await executor.execute(exitIntent, { spentTodayUsd: 0 }) : null;
-          if (outcome?.receipt) markPending({ mandateId: exitMandateId, txHash: outcome.receipt.txHash, status: "submitted" });
+          if (outcome?.receipt) markPending({ mandateId: exitMandateId, txHash: outcome.receipt.txHash, status: "submitted", action: "exit" });
+          if (outcome?.receipt) {
+            await rememberApprovalSpenders(outcome.receipt.txHash);
+            await checkRouterApprovals();
+          }
           await audit.append({
             timestamp: new Date().toISOString(),
             mandateId: pos.mandateId,
@@ -932,6 +1119,7 @@ async function main(): Promise<void> {
             weekLedger = recordLeg(weekLedger, "exit");
             saveBook(book);
             saveWeekLedger(weekLedger);
+            recordedExitTxHash = outcome.receipt.txHash;
           }
         } catch (err) {
           await sendAlert(process.env.ALERT_WEBHOOK_URL, {
@@ -945,6 +1133,17 @@ async function main(): Promise<void> {
         const idx = openPositions.findIndex((p) => p.mandateId === pos.mandateId);
         if (idx >= 0) openPositions.splice(idx, 1);
         lastPriceMs.delete(pos.mandateId);
+        // Persist the position removal before declaring the fill locally recorded.
+        // If the process dies after this marker but before pending.json is cleared,
+        // restart recovery can prove both the tx and its local state effect.
+        saveOpenPositions(openPositions);
+        if (recordedExitTxHash) {
+          markFillRecorded({
+            mandateId: exitMandateId,
+            action: "exit",
+            txHash: recordedExitTxHash,
+          });
+        }
         clearPending(exitMandateId); // exit fully recorded — no longer in-flight
       }
     }
@@ -988,6 +1187,9 @@ async function main(): Promise<void> {
         console.error("[worker] manual review flag armed - halting before any new entry.");
         break;
       }
+      // Verify TWAK has not set an unbounded router allowance on the trading wallet.
+      // Alert-once-per-token guard inside keeps this cheap to call every cycle.
+      await checkRouterApprovals();
       const nowMs = Date.now();
       const registration = registrationAlertState(
         nowMs,
@@ -1088,8 +1290,23 @@ async function main(): Promise<void> {
       const walletValueUsd = await currentWalletValueUsd();
       const currentValueUsd = book.scoredValueUsd;
       weekLedger = recordWeekValue(weekLedger, currentValueUsd);
-      // Intraday peak-to-trough (resets at UTC midnight) for the governor's daily layer.
-      const daily = updateDailyDrawdown(dailyAnchor, currentValueUsd, new Date().toISOString());
+      // Drawdown safety is marked to market, including unrealized open-position PnL.
+      // The scored ledger remains separate for competition economics and week doctrine.
+      const competitionWindowStarted = Date.now() >= Date.parse(weekStartIso);
+      const windowRisk = updateWindowDrawdown(
+        competitionWindowStarted ? windowDrawdownAnchor : undefined,
+        walletValueUsd,
+        weekStartIso,
+      );
+      if (competitionWindowStarted) {
+        windowDrawdownAnchor = windowRisk.anchor;
+        saveWindowDrawdownAnchor(windowDrawdownAnchor);
+      } else {
+        // Rehearsal PnL must not contaminate the June 22 competition peak.
+        windowDrawdownAnchor = undefined;
+      }
+      // Intraday peak-to-trough (resets at UTC midnight) uses the same marked basis.
+      const daily = updateDailyDrawdown(dailyAnchor, walletValueUsd, new Date().toISOString());
       dailyAnchor = daily.anchor;
       saveDailyAnchor(dailyAnchor);
       const weekElapsed = weekElapsedFraction(new Date().toISOString(), weekStartIso, weekEndIso);
@@ -1189,11 +1406,9 @@ async function main(): Promise<void> {
         twakPolicy,
         portfolioUsd: walletValueUsd,
         deployableUsd: Math.max(0, book.walletCashUsd - config.gasReserveUsd),
-        // Whole-window peak-to-trough drawdown (the 30% DQ metric) computed at line
-        // ~1023 from the week ledger's running peak. Feeding the REAL value lets the
-        // drawdown governor throttle entry size toward the internal 15% budget long
-        // before the 30% disqualifier — previously hardcoded 0, leaving it inert.
-        windowDrawdownPct: weekState.drawdownFromPeakPct,
+        // Whole-window peak-to-trough drawdown uses marked-to-market wallet value,
+        // so unrealized losses throttle risk before they become realized exits.
+        windowDrawdownPct: windowRisk.windowDrawdownPct,
         // Intraday peak-to-trough (resets at UTC midnight); drives the governor's daily
         // layer so a bad day throttles size independently of the whole-window budget.
         dailyDrawdownPct: daily.dailyDrawdownPct,
@@ -1205,7 +1420,7 @@ async function main(): Promise<void> {
         // drawdown cap; this slams the brakes well inside the 30% DQ and stops a losing
         // streak from compounding. Scout-only rehearsals are unaffected (drawdown 0, no losses).
         survivalMode:
-          weekState.drawdownFromPeakPct >= config.internalWindowDrawdownPct ||
+          windowRisk.windowDrawdownPct >= config.internalWindowDrawdownPct ||
           lossStreak >= config.survivalLossStreak,
         marketDataStale: false,
         calibrationStale: mode === "dry",
@@ -1320,7 +1535,7 @@ async function main(): Promise<void> {
           stopPrice: pos.trail.stopPrice,
           hasOpenPosition: true,
           hasPendingOrder: false,
-          windowDrawdownPct: weekState.drawdownFromPeakPct,
+          windowDrawdownPct: windowRisk.windowDrawdownPct,
           softDrawdownPct: config.softDrawdownPct,
           lossStreak,
           portfolioValueUsd: walletValueUsd,
@@ -1566,7 +1781,8 @@ async function main(): Promise<void> {
           try {
             // Mark the mandate in-flight BEFORE the submit, then attach the txHash
             // once it returns, so a crash mid-submit leaves a recoverable trace.
-            markPending({ mandateId: mandate.id, status: "pending_build" });
+            const pendingAction = e.result.signalFamily === "scout" ? "scout" : "entry";
+            markPending({ mandateId: mandate.id, status: "pending_build", action: pendingAction });
             const outcome = await executor.execute(e.result.intent, { spentTodayUsd });
             if (outcome.refused) {
               clearPending(mandate.id); // never broadcast — not in-flight
@@ -1576,7 +1792,9 @@ async function main(): Promise<void> {
                 timestamp: new Date().toISOString(),
               });
             } else if (outcome.receipt) {
-              markPending({ mandateId: mandate.id, txHash: outcome.receipt.txHash, status: "submitted" });
+              markPending({ mandateId: mandate.id, txHash: outcome.receipt.txHash, status: "submitted", action: pendingAction });
+              await rememberApprovalSpenders(outcome.receipt.txHash);
+              await checkRouterApprovals();
               spentTodayUsd += e.result.economics.positionSizeUsd;
               mandate.execution.status = "submitted";
               mandate.execution.txHash = outcome.receipt.txHash;
@@ -1646,6 +1864,11 @@ async function main(): Promise<void> {
               }
               saveBook(book);
               saveWeekLedger(weekLedger);
+              markFillRecorded({
+                mandateId: mandate.id,
+                action: pendingAction,
+                txHash: outcome.receipt.txHash,
+              });
               await audit.append({
                 timestamp: new Date().toISOString(),
                 mandateId: mandate.id,

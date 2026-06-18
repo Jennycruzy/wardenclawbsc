@@ -13,6 +13,20 @@ import type { EligibleToken } from "@wardenclaw/core";
 /** PancakeSwap V2 router on BSC mainnet. */
 export const PANCAKE_V2_ROUTER = "0x10ed43c718714eb63d5aa57b78b54704e256024e";
 
+/**
+ * The live TWAK CLI route observed during the June 15–16 mainnet rehearsal.
+ * TWAK aggregates the route and submits to this contract instead of calling the
+ * PancakeSwap router directly.
+ */
+export const TWAK_AGGREGATOR_ROUTER = "0x3d90f66b534dd8482b181e24655a9e8265316be9";
+
+/**
+ * Token spender emitted by the successful TWAK ETH exit transaction
+ * 0x37b86bcb…6bb5. This is the allowance address that must be monitored; it is
+ * distinct from both the aggregator transaction target and PancakeSwap V2.
+ */
+export const TWAK_TOKEN_SPENDER = "0x8157a9d65807521fbb8db8f37eeecefdd247e9b1";
+
 /** Stables tier — parking + Micro-Scout legs. */
 export const STARTER_STABLES: EligibleToken[] = [
   { symbol: "USDT", cmcId: 825, bscContractAddress: "0x55d398326f99059ff775485246999027b3197955", decimals: 18, isStable: true },
