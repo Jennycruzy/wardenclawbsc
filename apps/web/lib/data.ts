@@ -311,7 +311,9 @@ export function readPreflightStatus(): PreflightStatus {
     rehearsalPassed,
     walletFunded: envTrue("WALLET_FUNDED_CONFIRMED") || completedChecks.get(5) === true,
     executionRehearsalComplete: completedChecks.get(9) === true && completedChecks.get(10) === true,
-    calibrationPresent: existsSync(join(ROOT, "data", "calibration.json")),
+    calibrationPresent:
+      existsSync(join(ROOT, "data", "calibration")) ||
+      existsSync(join(ROOT, "data", "calibration.json")),
     alertsConfigured: Boolean(process.env.ALERT_WEBHOOK_URL),
     killSwitchConfigured: Boolean(process.env.KILL_SWITCH_TOKEN),
     phoneSafetyConfirmed:
