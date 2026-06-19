@@ -555,7 +555,7 @@ async function main(): Promise<void> {
 
   const report = {
     skill: "wardenclaw-doctrine",
-    generatedAt: new Date().toISOString(),
+    generatedAt: real ? new Date().toISOString() : iso(0),
     mode: "backtest",
     data_source: dataSource,
     is_real_market_evidence: real,

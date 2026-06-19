@@ -28,7 +28,7 @@ JSON signals — **never orders**. Key facts:
   combined DoraHacks BUIDL; the Skill cross-links the live agent address and on-chain proof.
   Deadline June 21, 2026, 13:00. Not yet submitted on DoraHacks.
 
-## SESSION HANDOFF — 2026-06-15 (live ops; read FIRST, for Codex to continue)
+## SESSION HANDOFF — 2026-06-15 (live ops; read FIRST when continuing)
 
 Live operations were run against the VPS (`root@38.49.216.59:/root/wardenbsc`). State below.
 
@@ -117,9 +117,8 @@ and `pnpm build` also passed; `wardenbsc-web` and `wardenbsc-api` were restarted
 
 ## Conventions (do not break)
 
-- **Commits:** author `jennycruzy`, **NO AI attribution** — no `Co-Authored-By`, no
-  "Generated with" trailer. Clean descriptive subjects; no "Phase N"/"Workstream N"
-  prefixes. (See `memory/commit-style.md`.)
+- **Commits:** author `jennycruzy`. Use clean descriptive subjects; no "Phase N"/
+  "Workstream N" prefixes. (See `memory/commit-style.md`.)
 - **No fake data, fail loud.** Every adapter throws without credentials; the worker
   never fabricates a fill, tx hash, price, or cost. Dry mode is labeled.
 - **The LLM never reaches execution.** It proposes structured perception upstream;

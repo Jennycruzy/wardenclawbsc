@@ -142,7 +142,7 @@ function readText(p: string): string {
 
   // (c) If a private config is reachable, diff WITHOUT printing private values.
   const privatePath = process.env.WARDENCLAW_PRIVATE_CONFIG
-    ?? [join(REPO_ROOT, "data", "calibration", "report.json"), join(REPO_ROOT, ".env")].find((p) => existsSync(p));
+    ?? [join(REPO_ROOT, "data", "calibration", "report.json")].find((p) => existsSync(p));
   let privacyNote: string;
   if (privatePath && existsSync(privatePath)) {
     const priv = readText(privatePath);
@@ -201,7 +201,11 @@ function readText(p: string): string {
   // (script additions only). Any change under packages/, apps/, scripts/, ops/, or to
   // lockfiles/tsconfig is a hard failure.
   // -uall expands new directories into individual files; parse "XY PATH" robustly.
-  const out = execSync("git status --porcelain -uall", { cwd: REPO_ROOT }).toString().trim();
+  // Runtime evidence under data/ is intentionally untracked on the live host and is not
+  // part of either Track's source/config surface.
+  const out = execSync("git status --porcelain -uall -- . ':(exclude)data/**'", {
+    cwd: REPO_ROOT,
+  }).toString().trim();
   const forbiddenPrefix = /^(packages\/|apps\/|scripts\/|ops\/)/;
   const forbiddenExact = new Set(["pnpm-lock.yaml", "pnpm-workspace.yaml", "tsconfig.base.json"]);
   const offenders: string[] = [];
