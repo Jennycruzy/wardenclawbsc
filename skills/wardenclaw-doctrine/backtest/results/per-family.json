@@ -1,11 +1,79 @@
 {
   "skill": "wardenclaw-doctrine",
-  "generatedAt": "2026-06-19T09:44:49.008Z",
   "mode": "backtest",
   "data_source": "cmc-history",
   "is_real_market_evidence": true,
   "note": "Real CMC daily OHLCV history. Defaults (defaults.json) only; the private calibrated config was not used.",
   "parameters_source": "defaults.json (public reference defaults)",
+  "evidence": {
+    "requested_days": 30,
+    "benchmark": "BNB",
+    "universe": [
+      {
+        "symbol": "BTC",
+        "tier": "large-cap",
+        "bars": 30
+      },
+      {
+        "symbol": "ETH",
+        "tier": "large-cap",
+        "bars": 30
+      },
+      {
+        "symbol": "SOL",
+        "tier": "liquid-major",
+        "bars": 30
+      },
+      {
+        "symbol": "XRP",
+        "tier": "liquid-major",
+        "bars": 30
+      },
+      {
+        "symbol": "DOGE",
+        "tier": "liquid-alt",
+        "bars": 30
+      },
+      {
+        "symbol": "ADA",
+        "tier": "liquid-alt",
+        "bars": 30
+      },
+      {
+        "symbol": "LINK",
+        "tier": "liquid-alt",
+        "bars": 30
+      },
+      {
+        "symbol": "AVAX",
+        "tier": "liquid-alt",
+        "bars": 30
+      },
+      {
+        "symbol": "DOT",
+        "tier": "liquid-alt",
+        "bars": 30
+      },
+      {
+        "symbol": "LTC",
+        "tier": "liquid-alt",
+        "bars": 30
+      },
+      {
+        "symbol": "BCH",
+        "tier": "liquid-alt",
+        "bars": 30
+      },
+      {
+        "symbol": "UNI",
+        "tier": "liquid-alt",
+        "bars": 30
+      }
+    ],
+    "window_start": "2026-05-20T00:00:00.000Z",
+    "window_end": "2026-06-18T00:00:00.000Z",
+    "catalyst_history_available": false
+  },
   "perFamily": [
     {
       "family": "catalyst",
@@ -16,7 +84,7 @@
       "totalReturnPct": 0,
       "maxDrawdownPct": 0,
       "rejections": {},
-      "note": "not evaluable from OHLCV-only history (requires a CMC trending-rank time series). See METHODOLOGY.md; the catalyst rule is exercised in full in fixture mode."
+      "note": "not historically evaluable: CMC exposes current trending/gainers surfaces but no dated trending-rank series. Using market-cap rank or future-known 30d gainers as a substitute would violate the written strategy. The exact catalyst evaluator is exercised only by the labeled fixture until daily CMC rank snapshots exist."
     },
     {
       "family": "rs_continuation",
@@ -26,19 +94,25 @@
       "avgRealizedMovePct": 0,
       "totalReturnPct": 0,
       "maxDrawdownPct": 0,
-      "rejections": {},
-      "note": "real relative strength: ETH vs BNB over 90 days"
+      "rejections": {
+        "REJECT_STOP_COHERENCE": 4
+      },
+      "note": "real relative strength across BTC, ETH, SOL, XRP, DOGE, ADA, LINK, AVAX, DOT, LTC, BCH, UNI vs BNB; requested 30 daily bars per asset"
     },
     {
       "family": "momentum",
       "evaluable": true,
-      "numTrades": 2,
-      "winRatePct": 50,
-      "avgRealizedMovePct": -4.75,
-      "totalReturnPct": -4.58,
-      "maxDrawdownPct": 10.56,
-      "rejections": {},
-      "note": "SMA-crossover momentum on ETH over 90 days"
+      "numTrades": 15,
+      "winRatePct": 33.3,
+      "avgRealizedMovePct": -0.52,
+      "totalReturnPct": -1.4,
+      "maxDrawdownPct": 9.98,
+      "rejections": {
+        "REJECT_STOP_COHERENCE": 2
+      },
+      "note": "SMA-crossover momentum across BTC, ETH, SOL, XRP, DOGE, ADA, LINK, AVAX, DOT, LTC, BCH, UNI; requested 30 daily bars per asset"
     }
-  ]
+  ],
+  "generatedAt": "2026-06-19T17:39:58.617Z",
+  "evidence_hash_sha256": "e0f53803ef6ccd82ccc54611cd0e54df4c63a987f324fa347e3bc50e062c9412"
 }
