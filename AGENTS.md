@@ -1,7 +1,32 @@
 # AGENTS.md — build state & continuation plan
 
-Working handoff for WARDENCLAW BSC (BNB Hack Track 1, win-first upgrade). Read this
-first when resuming.
+Working handoff for WARDENCLAW BSC (BNB Hack **Track 1** trading agent, win-first upgrade,
+plus the additive **Track 2** Strategy Skill). Read this first when resuming.
+
+## SESSION HANDOFF — 2026-06-19 (Track 2 Strategy Skill — additive, read FIRST)
+
+Built the **Track 2 "Strategy Skills"** submission as a standalone, spec-only CoinMarketCap
+Skill in `skills/wardenclaw-doctrine/`. It packages the live agent's doctrine (regime
+classifier, three entry families, two-ledger net-edge, drawdown-budgeted sizing, trailing
+ratchet, HUNT/PRESS/DEFEND week-state, compliance scout) as a backtestable spec that emits
+JSON signals — **never orders**. Key facts:
+
+- **Strictly additive.** No Track 1 trading code changed. Outside the skill folder only docs
+  + three `skill:*` scripts in root `package.json` were touched (README, SELF_AUDIT, this
+  file, BNB_SUBMISSION, SPECIAL_PRIZES). `pnpm skill:audit` check 7 enforces "no Track 1
+  source/config touched"; full existing suite still green (362 tests).
+- **Edge protection.** Publishes the full framework with the repo's already-public reference
+  defaults; the live *calibrated* values (tuned bands, score→move mapping, deployed
+  thresholds) stay private. `defaults.json` carries a labeled naive prior, not the calibrated
+  mapping. Leak guard in the audit (check 5).
+- **Real evidence.** A real backtest was run against real CMC daily OHLCV (ETH vs BNB, ~90d)
+  using the VPS `CMC_API_KEY` read read-only over SSH (key never committed; verified absent).
+  Committed at `skills/wardenclaw-doctrine/backtest/results/`. Results are deliberately
+  modest/unflattering (un-tuned defaults) — honest, not inflated.
+- **Commands:** `pnpm skill:backtest`, `pnpm skill:validate`, `pnpm skill:audit` (all green).
+- **Submission:** `skills/wardenclaw-doctrine/SUBMISSION.md`. Track 1 + Track 2 ship as ONE
+  combined DoraHacks BUIDL; the Skill cross-links the live agent address and on-chain proof.
+  Deadline June 21, 2026, 13:00. Not yet submitted on DoraHacks.
 
 ## SESSION HANDOFF — 2026-06-15 (live ops; read FIRST, for Codex to continue)
 

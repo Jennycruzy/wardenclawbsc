@@ -36,6 +36,24 @@ the code never labels them complete without real evidence.
 | 3 | Audit-grounded strategy explanation with deterministic disabled fallback | implemented | `strategyExplanation.ts`, `scripts/explain-strategy.ts`, generated `docs/STRATEGY_EXPLANATION.*`; `strategyExplanation.test.ts` |
 | 4 | Real CMC key/client/surface preflight plus no-spend x402 reachability | implemented | `cmc-adapter/wiringCheck.ts`, `scripts/check-cmc-wiring.ts`, rehearsal checklist; `wiringCheck.test.ts` |
 
+## Track 2 Skill — wardenclaw-doctrine (additive, spec-only)
+
+A standalone Track 2 "Strategy Skills" submission in `skills/wardenclaw-doctrine/`. It is
+strictly additive: it changes no Track 1 trading code (only this row set, the README Track 2
+section, and three new `skill:*` scripts in the root `package.json`). It is spec-only — it
+emits signals/state, never orders.
+
+| Check | Requirement | Status | Evidence |
+|---|---|---|---|
+| T2-1 | SKILL.md conforms to the verified CMC Skill format | implemented | `skills/wardenclaw-doctrine/SKILL.md`, `FORMAT_NOTES.md`; `pnpm skill:audit` check 1 |
+| T2-2 | Full doctrine reimplementable from the spec alone (regime, 3 families, net-edge, sizing, exits, week-state, compliance, calibration) | implemented | `strategy-spec.md`; `skill:audit` check 2 |
+| T2-3 | Every emitted signal validates against the JSON schema; all five kinds exercised | implemented | `signals.schema.json`, `examples/example-signals.jsonl`; `pnpm skill:validate`, `skill:audit` check 3 |
+| T2-4 | No execution surface (no TWAK/signing/wallet/router/x402/execution-adapter) | implemented | `skill:audit` check 4 (greps the folder) |
+| T2-5 | No calibration leak: public reference defaults only; naive prior, not the calibrated mapping | implemented | `defaults.json`, `strategy-spec.md` §12; `skill:audit` check 5 |
+| T2-6 | Backtest reproducible; results real-or-absent, never fabricated | implemented | `backtest/run-skill-backtest.ts`, `backtest/METHODOLOGY.md`, `results/`; `skill:audit` check 6 |
+| T2-7 | Additive only — no Track 1 source/config touched; changes confined to skill folder + Markdown docs + `package.json` scripts | implemented | `skill:audit` check 7 |
+| T2-8 | Submission text ready; Track 1 cross-link + live agent address; June 21 deadline | implemented | `SUBMISSION.md`, `AUDIT.md`; `skill:audit` check 8 |
+
 ## Seven honesty answers
 
 1. **Can any entry reach TWAK without eligibility, scored net-edge, wallet floor,

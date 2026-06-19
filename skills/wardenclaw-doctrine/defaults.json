@@ -1,0 +1,175 @@
+{
+  "_meta": {
+    "name": "wardenclaw-doctrine",
+    "purpose": "PUBLIC reference parameters for the WARDENCLAW doctrine strategy spec.",
+    "status": "reference defaults — production deployments should calibrate on recent data (a calibration procedure is included in strategy-spec.md §11 and backtest/METHODOLOGY.md).",
+    "edge_protection_note": "These are honest, backtestable defaults. They are NOT the live agent's calibrated values. The live trending-delta thresholds, tuned score bands, calibrated score->expected-move mapping, deployed ATR multiples, press/defend triggers and NET_EDGE_MIN_BPS as actually deployed live in a private runtime config and are intentionally never published here. Anything below that matches the live deployment is only the already-public conservative default in the repo's packages/core/src/config.ts; the tuned values are private.",
+    "units": "bps = basis points (1bp = 0.01%). pct = percent. atr = multiples of recent ATR (ATR expressed as a fraction of price). usd = US dollars.",
+    "calibration_required": true
+  },
+
+  "universe": {
+    "benchmark": "BNB (or an eligible-majors composite) — used as the relative-strength reference ONLY; the strategy never holds the benchmark as a position",
+    "stable_quote": "USDT",
+    "eligible_by_contract": true,
+    "comment": "Eligibility is keyed by exact token contract address, never by ticker symbol. The reference universe is the liquid-majors set plus the venue's eligible list."
+  },
+
+  "regime": {
+    "redBenchmarkPct": -4,
+    "greenBenchmarkPct": 2,
+    "redFearGreed": 25,
+    "greenFearGreed": 60,
+    "redBreadth": 0.3,
+    "greenBreadth": 0.6,
+    "hysteresisChecks": 2,
+    "highVolatilityRatio": 1.5,
+    "_doc": {
+      "redBenchmarkPct": "benchmark 24h change (%) at/below which the trend signal votes RED",
+      "greenBenchmarkPct": "benchmark 24h change (%) at/above which the trend signal votes GREEN",
+      "redFearGreed": "CMC Fear & Greed at/below which the sentiment signal votes RED",
+      "greenFearGreed": "CMC Fear & Greed at/above which the sentiment signal votes GREEN",
+      "redBreadth": "fraction of tracked majors up at/below which breadth votes RED",
+      "greenBreadth": "fraction of tracked majors up at/above which breadth votes GREEN",
+      "hysteresisChecks": "consecutive confirming raw reads required to flip the committed regime",
+      "highVolatilityRatio": "short-horizon move / majors baseline at/above which volatility is elevated"
+    }
+  },
+
+  "entry_catalyst": {
+    "trendingDeltaMin": 5,
+    "trendingTopN": 30,
+    "volumeExpansionMin": 1.5,
+    "spikeCooldownChecks": 2,
+    "maxRetracePct": 0.5,
+    "spikeMinPct": 0.08,
+    "_doc": {
+      "trendingDeltaMin": "rank places of improvement required since the prior check (DELTA, not level)",
+      "trendingTopN": "rank <= this counts as a fresh top-N entry",
+      "volumeExpansionMin": "24h volume must be >= this multiple of the token's own recent baseline",
+      "spikeCooldownChecks": "consecutive post-peak consolidation checks required before a continuation entry",
+      "maxRetracePct": "max fraction of the spike a pullback may retrace and still be a valid base",
+      "spikeMinPct": "a run-up >= this fraction counts as a spike that arms the no-first-spike guard"
+    }
+  },
+
+  "entry_rs_continuation": {
+    "rsOutperformMinBps": 200,
+    "consecutiveChecks": 2,
+    "requireRisingVolume": true,
+    "_doc": {
+      "rsOutperformMinBps": "required outperformance vs the benchmark (24h change difference) in bps, on each confirming check",
+      "consecutiveChecks": "number of consecutive checks that must clear the outperformance bar",
+      "requireRisingVolume": "volume must be rising across the confirming checks"
+    }
+  },
+
+  "entry_momentum": {
+    "scoreWeights": {
+      "momentum": 0.35,
+      "liquiditySafety": 0.2,
+      "relativeStrength": 0.15,
+      "sentiment": 0.15,
+      "volatilitySafety": 0.1,
+      "walletRiskState": 0.05
+    },
+    "_doc": "deterministic 0..100 score; component weights sum to 1. Momentum rotation between the strongest liquid major and stables, regime-gated (GREEN/NEUTRAL only)."
+  },
+
+  "net_edge": {
+    "netEdgeMinBps": 30,
+    "scoringSimCostBps": 10,
+    "frictionBudgetBps": 120,
+    "walletFloorFraction": 0.75,
+    "dustRoundTripCeilingBps": 350,
+    "_doc": {
+      "netEdgeMinBps": "REFERENCE margin the expected move must clear ABOVE modeled round-trip cost. Calibrate per family before deploying.",
+      "scoringSimCostBps": "modeled simulated cost per leg (round trip = 2 legs) — the 'scored ledger' cost",
+      "frictionBudgetBps": "round-trip friction budget; a setup whose size forces friction above this is not tradeable at this book size",
+      "walletFloorFraction": "expected move must also exceed this fraction of the MEASURED real round-trip cost (wallet ledger sanity floor)",
+      "dustRoundTripCeilingBps": "a measured real round-trip above this means notional is too small vs fixed cost (dust) — do not trade"
+    }
+  },
+
+  "sizing": {
+    "kellyFraction": 0.25,
+    "perTradeRiskPct": 3,
+    "maxPositionPct": 70,
+    "maxConcurrentPositions": 1,
+    "competitionDqDrawdownPct": 30,
+    "internalWindowDrawdownPct": 15,
+    "maxDailyDrawdownPct": 6,
+    "softDrawdownPct": 4,
+    "survivalLossStreak": 2,
+    "_doc": {
+      "kellyFraction": "fractional-Kelly multiplier applied to the calibrated edge estimate",
+      "perTradeRiskPct": "fraction of the book risked across the volatility stop band; size is DERIVED from the stop, never the reverse",
+      "maxPositionPct": "hard cap on position size as a fraction of deployable capital",
+      "maxConcurrentPositions": "concurrency cap (one position at a time)",
+      "competitionDqDrawdownPct": "disqualifier drawdown cap (indicative 30% — confirm with the venue); a binding governor layer",
+      "internalWindowDrawdownPct": "internal whole-window risk budget (binds before the DQ cap)",
+      "maxDailyDrawdownPct": "internal per-day drawdown limit",
+      "softDrawdownPct": "soft warning level inside the daily limit",
+      "survivalLossStreak": "consecutive realized losses that pause new directional entries"
+    }
+  },
+
+  "exits": {
+    "stopAtrMultiple": 1.5,
+    "breakevenTriggerAtr": 1.0,
+    "trailAtrMultiple": 1.5,
+    "trailTightAtrMultiple": 1.0,
+    "_doc": {
+      "stopAtrMultiple": "initial volatility stop distance below entry, in ATR multiples",
+      "breakevenTriggerAtr": "unrealized gain (in ATR multiples) that arms the breakeven+costs ratchet",
+      "trailAtrMultiple": "normal trail distance below the high-water mark, in ATR multiples",
+      "trailTightAtrMultiple": "tight (DEFEND/RED) trail distance below the high-water mark, in ATR multiples",
+      "policy": "stop only ever ratchets UP; no fixed take-profit (right tail stays open)"
+    }
+  },
+
+  "week_state": {
+    "weeklyLegBudget": 14,
+    "flatBandLoPct": -2,
+    "flatBandHiPct": 3,
+    "defendTriggerPct": 8,
+    "huntMinScore": 80,
+    "pressMinScore": 65,
+    "defendMinScore": 90,
+    "netEdgeDefendBonusBps": 50,
+    "pressStartDay": 6,
+    "reservedLegsPerDay": 1,
+    "weekLengthDays": 7,
+    "_doc": {
+      "weeklyLegBudget": "total swap legs budgeted for the window",
+      "flatBandLoPct": "lower bound of the 'still flat' band that arms a PRESS trade late in the window",
+      "flatBandHiPct": "upper bound of the 'still flat' band",
+      "defendTriggerPct": "scored return above which the state switches to DEFEND (protect the lead)",
+      "huntMinScore": "minimum trade score in HUNT",
+      "pressMinScore": "lowered minimum score for the single pre-committed PRESS trade",
+      "defendMinScore": "raised minimum score while DEFENDing",
+      "netEdgeDefendBonusBps": "extra net-edge margin required while DEFENDing",
+      "pressStartDay": "first competition day the PRESS trade becomes available",
+      "reservedLegsPerDay": "legs reserved per remaining day so the budget is not spent early",
+      "comment": "Generic competition/window-aware risk scheduling: full aggression early (HUNT), exactly one lowered-band trade if flat late (PRESS), tightened trail + raised thresholds when defending a gain (DEFEND)."
+    }
+  },
+
+  "compliance": {
+    "minTradesPerDay": 1,
+    "minTradesPerWeek": 7,
+    "microScoutUsd": 5,
+    "_doc": {
+      "minTradesPerDay": "venue minimum-activity floor (optional module)",
+      "minTradesPerWeek": "venue weekly minimum-activity floor",
+      "microScoutUsd": "notional for an optional stable<->stable last-resort trade that satisfies a minimum-activity rule without taking directional risk"
+    }
+  },
+
+  "expected_move_reference_prior": {
+    "model": "naive_linear",
+    "scoreFloor": 50,
+    "bpsPerScorePoint": 12,
+    "_doc": "REFERENCE PLACEHOLDER ONLY. expected_move_bps = max(0, (score - scoreFloor) * bpsPerScorePoint). This is a transparent naive prior so the spec is runnable out of the box; it is deliberately NOT a calibrated score->move mapping. Replace it with a calibration report built from real history (strategy-spec.md §11) before any real deployment. The live agent uses a private calibrated mapping that is not published here."
+  }
+}

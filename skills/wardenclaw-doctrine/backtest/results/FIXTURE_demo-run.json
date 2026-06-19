@@ -1,0 +1,41 @@
+{
+  "skill": "wardenclaw-doctrine",
+  "generatedAt": "2026-06-19T10:28:47.660Z",
+  "mode": "backtest",
+  "data_source": "documented-synthetic-fixture",
+  "is_real_market_evidence": false,
+  "note": "DOCUMENTED SYNTHETIC FIXTURE — runnable demo and schema-validity evidence only, NOT real-market performance. Run with SKILL_BACKTEST_REAL=1 and CMC_API_KEY for real evidence.",
+  "parameters_source": "defaults.json (public reference defaults)",
+  "perFamily": [
+    {
+      "family": "catalyst",
+      "evaluable": true,
+      "numTrades": 1,
+      "winRatePct": 100,
+      "avgRealizedMovePct": 7.69,
+      "totalReturnPct": 2.61,
+      "maxDrawdownPct": 4.26,
+      "rejections": {}
+    },
+    {
+      "family": "rs_continuation",
+      "evaluable": true,
+      "numTrades": 1,
+      "winRatePct": 100,
+      "avgRealizedMovePct": 9.27,
+      "totalReturnPct": 4.08,
+      "maxDrawdownPct": 0,
+      "rejections": {}
+    },
+    {
+      "family": "momentum",
+      "evaluable": true,
+      "numTrades": 1,
+      "winRatePct": 100,
+      "avgRealizedMovePct": 14.18,
+      "totalReturnPct": 8.74,
+      "maxDrawdownPct": 5.36,
+      "rejections": {}
+    }
+  ]
+}

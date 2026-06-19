@@ -1,0 +1,44 @@
+{
+  "skill": "wardenclaw-doctrine",
+  "generatedAt": "2026-06-19T09:44:49.008Z",
+  "mode": "backtest",
+  "data_source": "cmc-history",
+  "is_real_market_evidence": true,
+  "note": "Real CMC daily OHLCV history. Defaults (defaults.json) only; the private calibrated config was not used.",
+  "parameters_source": "defaults.json (public reference defaults)",
+  "perFamily": [
+    {
+      "family": "catalyst",
+      "evaluable": false,
+      "numTrades": 0,
+      "winRatePct": 0,
+      "avgRealizedMovePct": 0,
+      "totalReturnPct": 0,
+      "maxDrawdownPct": 0,
+      "rejections": {},
+      "note": "not evaluable from OHLCV-only history (requires a CMC trending-rank time series). See METHODOLOGY.md; the catalyst rule is exercised in full in fixture mode."
+    },
+    {
+      "family": "rs_continuation",
+      "evaluable": true,
+      "numTrades": 0,
+      "winRatePct": 0,
+      "avgRealizedMovePct": 0,
+      "totalReturnPct": 0,
+      "maxDrawdownPct": 0,
+      "rejections": {},
+      "note": "real relative strength: ETH vs BNB over 90 days"
+    },
+    {
+      "family": "momentum",
+      "evaluable": true,
+      "numTrades": 2,
+      "winRatePct": 50,
+      "avgRealizedMovePct": -4.75,
+      "totalReturnPct": -4.58,
+      "maxDrawdownPct": 10.56,
+      "rejections": {},
+      "note": "SMA-crossover momentum on ETH over 90 days"
+    }
+  ]
+}

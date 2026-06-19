@@ -378,6 +378,9 @@ care during the competition.
 | `pnpm replay --mandate <id>` | Replay a mandate's hash-chained audit |
 | `pnpm rehearsal:checklist` | Regenerate/check the live rehearsal gate |
 | `pnpm verify:integrations -- --live` | Fail if required live integrations are missing |
+| `pnpm skill:backtest` | Track 2 Skill: replay the doctrine spec over price history (defaults only) |
+| `pnpm skill:validate` | Track 2 Skill: validate emitted signals against the JSON schema |
+| `pnpm skill:audit` | Track 2 Skill: self-audit (format, schema, no-execution, no-leak, additivity) |
 
 ## Documentation
 
@@ -392,6 +395,19 @@ care during the competition.
 - [Special-prize evidence](docs/SPECIAL_PRIZES.md)
 - [Deployment](docs/DEPLOYMENT.md)
 - [Final self-audit](docs/SELF_AUDIT.md)
+- [Track 2 Strategy Skill](skills/wardenclaw-doctrine/SKILL.md) — `wardenclaw-doctrine` (spec-only CMC Skill)
+
+## Track 2 Skill — wardenclaw-doctrine
+
+A separate, additive Track 2 "Strategy Skills" submission lives in
+[`skills/wardenclaw-doctrine/`](skills/wardenclaw-doctrine/). It is a **CoinMarketCap Skill**
+that packages this agent's deterministic doctrine as a standalone, public, **spec-only**
+strategy: it consumes CMC data and emits signals and strategy state as JSON (regime, entry
+candidates, sizing, exits, week-state), never orders. It is the strategy brain of the live
+Track 1 agent, published with documented **public reference defaults** — the live calibrated
+values stay private. It does not modify any Track 1 trading code. See
+[`SKILL.md`](skills/wardenclaw-doctrine/SKILL.md) and
+[`SUBMISSION.md`](skills/wardenclaw-doctrine/SUBMISSION.md).
 
 ## Scope and Disclaimer
 
