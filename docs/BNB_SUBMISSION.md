@@ -18,20 +18,6 @@ disqualification drawdown cap** with simulated transaction costs applied.
 - **Executor:** TWAK CLI, Access ID `6938de90…` (swap-enabled). Spot swaps confirmed live
   on BSC mainnet (entry + watchdog-driven exit) via the TWAK CLI.
 
-## Track 2 companion — the `wardenclaw-doctrine` Strategy Skill
-
-Track 1 and Track 2 ship as **one combined BUIDL**. The Track 2 "Strategy Skills" entry is a
-standalone, public, **spec-only** CoinMarketCap Skill in
-[`skills/wardenclaw-doctrine/`](../skills/wardenclaw-doctrine/) — the same doctrine this live
-agent runs, packaged as a backtestable strategy spec that emits JSON signals (regime, entry
-candidates, sizing, exits, week-state) and **never orders**. It changes no Track 1 trading
-code. It publishes the full framework with documented **public reference defaults**; the live
-*calibrated* values stay private until after the scored window. A real backtest over ~90 days
-of CMC OHLCV history is committed under `skills/wardenclaw-doctrine/backtest/results/`. See
-[`skills/wardenclaw-doctrine/SUBMISSION.md`](../skills/wardenclaw-doctrine/SUBMISSION.md) and
-[`SKILL.md`](../skills/wardenclaw-doctrine/SKILL.md). Run it: `pnpm skill:backtest`,
-`pnpm skill:validate`, `pnpm skill:audit`.
-
 ## The trade loop (every gate is deterministic)
 
 ```
@@ -115,9 +101,6 @@ pnpm run:bsc-agent                  # dry decision run on real CMC data (no sign
 pnpm rehearsal:checklist            # §0.12 gate → docs/PREFLIGHT.md
 pnpm explain:strategy               # paste-ready audit-grounded write-up
 pnpm --filter @wardenclaw/web dev     # dashboards: /bsc, /bsc/proof, /bsc/ops
-pnpm skill:backtest                 # Track 2 Skill: replay the doctrine spec (defaults only)
-pnpm skill:validate                 # Track 2 Skill: validate emitted signals vs JSON schema
-pnpm skill:audit                    # Track 2 Skill: self-audit (format, schema, no-leak, additive)
 ```
 
 Live: configure TWAK + RPC + alerts, pass the rehearsal, then run under pm2

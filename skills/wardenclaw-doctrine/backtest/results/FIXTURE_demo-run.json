@@ -1,11 +1,13 @@
 {
   "skill": "wardenclaw-doctrine",
-  "generatedAt": "2026-05-01T00:00:00.000Z",
   "mode": "backtest",
   "data_source": "documented-synthetic-fixture",
   "is_real_market_evidence": false,
   "note": "DOCUMENTED SYNTHETIC FIXTURE — runnable demo and schema-validity evidence only, NOT real-market performance. Run with SKILL_BACKTEST_REAL=1 and CMC_API_KEY for real evidence.",
   "parameters_source": "defaults.json (public reference defaults)",
+  "evidence": {
+    "fixture": true
+  },
   "perFamily": [
     {
       "family": "catalyst",
@@ -37,5 +39,7 @@
       "maxDrawdownPct": 5.36,
       "rejections": {}
     }
-  ]
+  ],
+  "generatedAt": "2026-05-01T00:00:00.000Z",
+  "evidence_hash_sha256": "a2576dda31e4e1882b3dd893a65ef5040d2049d85248f83b0f69a4517ee3b336"
 }

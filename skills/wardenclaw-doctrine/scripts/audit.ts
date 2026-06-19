@@ -11,7 +11,16 @@
  */
 
 import { execSync } from "node:child_process";
-import { readFileSync, existsSync, readdirSync, statSync } from "node:fs";
+import { createHash } from "node:crypto";
+import {
+  readFileSync,
+  existsSync,
+  mkdtempSync,
+  readdirSync,
+  rmSync,
+  statSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -43,6 +52,22 @@ function walk(dir: string): string[] {
 const allFiles = walk(SKILL_DIR);
 function readText(p: string): string {
   return readFileSync(p, "utf8");
+}
+
+function canonicalize(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonicalize);
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([key, child]) => [key, canonicalize(child)]),
+    );
+  }
+  return value;
+}
+
+function hashCanonical(value: unknown): string {
+  return createHash("sha256").update(JSON.stringify(canonicalize(value))).digest("hex");
 }
 
 // ── 1. Format conformance ────────────────────────────────────────────────────
@@ -186,9 +211,67 @@ function readText(p: string): string {
       if (r.is_real_market_evidence === true && (r.data_source !== "cmc-history")) fab.push(`${f}: claims real evidence without cmc-history source`);
       if (r.is_real_market_evidence === false && !/synthetic/i.test(JSON.stringify(r))) fab.push(`${f}: fixture not labeled synthetic`);
     }
+    const realReportPath = join(resultsDir, "per-family.json");
+    if (!existsSync(realReportPath)) {
+      fab.push("per-family.json: committed real evidence missing");
+    } else {
+      const report = JSON.parse(readText(realReportPath)) as Record<string, unknown>;
+      const expectedHash = report.evidence_hash_sha256;
+      const { generatedAt: _generatedAt, evidence_hash_sha256: _hash, ...core } = report;
+      if (report.is_real_market_evidence !== true || report.data_source !== "cmc-history") {
+        fab.push("per-family.json: not labeled as real CMC history");
+      }
+      if (expectedHash !== hashCanonical(core)) {
+        fab.push("per-family.json: evidence hash mismatch");
+      }
+      const evidence = report.evidence as
+        | { requested_days?: number; universe?: Array<{ symbol?: string; bars?: number }> }
+        | undefined;
+      if (
+        !evidence ||
+        Number(evidence.requested_days) < 25 ||
+        Number(evidence.requested_days) > 35 ||
+        !Array.isArray(evidence.universe) ||
+        evidence.universe.length < 4 ||
+        evidence.universe.some((x) => Number(x.bars) < 25)
+      ) {
+        fab.push("per-family.json: real evidence is not a ~30-day multi-asset universe run");
+      }
+      const families = Array.isArray(report.perFamily)
+        ? (report.perFamily as Array<{ family?: string }>).map((x) => x.family)
+        : [];
+      if (!["catalyst", "rs_continuation", "momentum"].every((x) => families.includes(x))) {
+        fab.push("per-family.json: one or more required families missing");
+      }
+
+      if (process.env.SKILL_AUDIT_REAL === "1") {
+        const dir = mkdtempSync(join(tmpdir(), "wardenclaw-skill-audit-"));
+        try {
+          const examples = join(dir, "signals.jsonl");
+          execSync(
+            `SKILL_BACKTEST_REAL=1 SKILL_BACKTEST_DAYS=30 SKILL_BACKTEST_OUTPUT_DIR=${dir} SKILL_BACKTEST_EXAMPLES_PATH=${examples} ${TSX} ${join(SKILL_DIR, "backtest", "run-skill-backtest.ts")}`,
+            { cwd: REPO_ROOT, stdio: "pipe" },
+          );
+          const rerun = JSON.parse(readText(join(dir, "per-family.json"))) as Record<string, unknown>;
+          const {
+            generatedAt: _rerunGeneratedAt,
+            evidence_hash_sha256: _rerunHash,
+            ...rerunCore
+          } = rerun;
+          if (hashCanonical(rerunCore) !== expectedHash) {
+            fab.push("per-family.json: live CMC rerun does not reproduce committed evidence");
+          }
+        } finally {
+          rmSync(dir, { recursive: true, force: true });
+        }
+      }
+    }
+
     const pass = deterministic && fab.length === 0;
     record(6, "Backtest honesty", pass,
-      pass ? "runner reproducible; results carry no fabricated real-market numbers (real run requires CMC_API_KEY)" : `${!deterministic ? "non-deterministic output; " : ""}${fab.join("; ")}`);
+      pass
+        ? `fixture deterministic; committed real artifact hash-valid, ~30-day and multi-asset${process.env.SKILL_AUDIT_REAL === "1" ? "; live CMC rerun reproduced it" : ""}`
+        : `${!deterministic ? "non-deterministic output; " : ""}${fab.join("; ")}`);
   } catch (e) {
     record(6, "Backtest honesty", false, `backtest run failed: ${(e as { stderr?: Buffer }).stderr?.toString().trim() ?? e}`);
   }
@@ -201,28 +284,37 @@ function readText(p: string): string {
   // (script additions only). Any change under packages/, apps/, scripts/, ops/, or to
   // lockfiles/tsconfig is a hard failure.
   // -uall expands new directories into individual files; parse "XY PATH" robustly.
-  // Runtime evidence under data/ is intentionally untracked on the live host and is not
-  // part of either Track's source/config surface.
-  const out = execSync("git status --porcelain -uall -- . ':(exclude)data/**'", {
+  const skillAddCommit = execSync(
+    `git log --diff-filter=A --format=%H --reverse -- ${relative(REPO_ROOT, join(SKILL_DIR, "SKILL.md"))} | head -1`,
+    { cwd: REPO_ROOT, shell: "/bin/bash" },
+  ).toString().trim();
+  const baseCommit = skillAddCommit
+    ? execSync(`git rev-parse ${skillAddCommit}^`, { cwd: REPO_ROOT }).toString().trim()
+    : "HEAD";
+  const committed = execSync(`git diff --name-only ${baseCommit}..HEAD`, {
     cwd: REPO_ROOT,
-  }).toString().trim();
-  const forbiddenPrefix = /^(packages\/|apps\/|scripts\/|ops\/)/;
-  const forbiddenExact = new Set(["pnpm-lock.yaml", "pnpm-workspace.yaml", "tsconfig.base.json"]);
+  }).toString();
+  const working = execSync("git status --porcelain -uall -- . ':(exclude)data/**'", {
+    cwd: REPO_ROOT,
+  })
+    .toString()
+    .split("\n")
+    .filter(Boolean)
+    .map((line) => line.slice(3));
+  const changed = [...new Set([...committed.split("\n").filter(Boolean), ...working])];
+  const allowedExact = new Set(["README.md", "docs/SELF_AUDIT.md", "package.json"]);
   const offenders: string[] = [];
-  for (const line of out.split("\n").filter(Boolean)) {
-    const m = line.match(/^..\s+(.*)$/);
-    if (!m) continue;
-    const path = m[1]!.replace(/^"|"$/g, "");
-    const target = path.includes(" -> ") ? path.split(" -> ")[1]!.replace(/^"|"$/g, "") : path;
+  for (const path of changed) {
+    const target = path.includes(" -> ") ? path.split(" -> ")[1]! : path;
     if (target.startsWith("skills/wardenclaw-doctrine/")) continue;
-    const isDoc = target.endsWith(".md");
-    const isPkgJson = target === "package.json";
-    const isTrack1Code = forbiddenPrefix.test(target) || forbiddenExact.has(target);
-    if (!isTrack1Code && (isDoc || isPkgJson)) continue;
+    if (allowedExact.has(target)) continue;
+    if (target === "AGENTS.md" && !existsSync(join(REPO_ROOT, target))) continue;
     offenders.push(target);
   }
   record(7, "Additivity", offenders.length === 0,
-    offenders.length === 0 ? "no Track 1 source/config touched; changes confined to skill folder + Markdown docs + package.json scripts" : `out-of-scope changes (Track 1 code/config): ${offenders.join(", ")}`);
+    offenders.length === 0
+      ? "exact allowlist satisfied; AGENTS.md may only be removed as repository hygiene"
+      : `out-of-scope changes: ${offenders.join(", ")}`);
 })();
 
 // ── 8. Submission readiness ──────────────────────────────────────────────────

@@ -32,14 +32,9 @@ this design.
 - **x402:** pay-per-request inside the trade loop with receipts.
 - **Per-mandate attribution:** every mandate records exactly which CMC tools fed
   it (`perception.cmcToolsUsed`), shown on `/bsc/mandates/:id` and `/bsc/proof`.
-- **Published CMC Skill (Track 2):** the same doctrine is packaged as a standalone,
-  spec-only CoinMarketCap Skill (`skills/wardenclaw-doctrine/`) in the verified CMC
-  `SKILL.md` format, declaring the `mcp__cmc-mcp__*` surfaces it consumes (quotes,
-  trending, global-metrics/Fear & Greed) and backtested over real CMC OHLCV history —
-  a concrete, judgeable Agent Hub artifact beyond the live agent.
 
 Evidence: `packages/cmc-adapter/*`, `buildMomentumInputs`/`buildCatalystInputs`,
-`scripts/build-eligible-tokens.ts`, `skills/wardenclaw-doctrine/SKILL.md`.
+`scripts/build-eligible-tokens.ts`.
 
 ## Main-demo strategy story
 

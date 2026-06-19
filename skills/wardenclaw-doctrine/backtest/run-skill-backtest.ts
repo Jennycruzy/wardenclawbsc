@@ -24,6 +24,7 @@
  */
 
 import "dotenv/config";
+import { createHash } from "node:crypto";
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -57,8 +58,9 @@ import {
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const SKILL_DIR = dirname(HERE);
-const RESULTS_DIR = join(HERE, "results");
-const EXAMPLES_PATH = join(SKILL_DIR, "examples", "example-signals.jsonl");
+const RESULTS_DIR = process.env.SKILL_BACKTEST_OUTPUT_DIR ?? join(HERE, "results");
+const EXAMPLES_PATH =
+  process.env.SKILL_BACKTEST_EXAMPLES_PATH ?? join(SKILL_DIR, "examples", "example-signals.jsonl");
 
 // ── Load PUBLIC defaults (never the private runtime config) ──────────────────
 interface Defaults {
@@ -457,21 +459,57 @@ interface FamilyStat {
   note?: string;
 }
 
-function summarize(family: string, r: ReturnType<typeof runBacktest>, note?: string): FamilyStat {
-  const avgMove = r.trades.length
-    ? (r.trades.reduce((s, t) => s + (t.exitPrice - t.entryPrice) / t.entryPrice, 0) / r.trades.length) * 100
+type BacktestRun = ReturnType<typeof runBacktest>;
+
+function summarizeMany(
+  family: string,
+  runs: Array<{ symbol: string; run: BacktestRun }>,
+  note?: string,
+): FamilyStat {
+  const trades = runs.flatMap(({ run }) => run.trades);
+  const wins = trades.filter((t) => t.exitPrice > t.entryPrice).length;
+  const avgMove = trades.length
+    ? (trades.reduce((s, t) => s + (t.exitPrice - t.entryPrice) / t.entryPrice, 0) / trades.length) * 100
     : 0;
+  const rejections: Record<string, number> = {};
+  for (const { run } of runs) {
+    for (const [code, count] of Object.entries(run.rejections)) {
+      rejections[code] = (rejections[code] ?? 0) + count;
+    }
+  }
   return {
     family,
     evaluable: true,
-    numTrades: r.numTrades,
-    winRatePct: Number((r.winRate * 100).toFixed(1)),
+    numTrades: trades.length,
+    winRatePct: trades.length ? Number(((wins / trades.length) * 100).toFixed(1)) : 0,
     avgRealizedMovePct: Number(avgMove.toFixed(2)),
-    totalReturnPct: Number(r.totalReturnPct.toFixed(2)),
-    maxDrawdownPct: Number(r.maxDrawdownPct.toFixed(2)),
-    rejections: r.rejections,
+    totalReturnPct: Number(
+      (runs.reduce((sum, { run }) => sum + run.totalReturnPct, 0) / Math.max(1, runs.length)).toFixed(2),
+    ),
+    maxDrawdownPct: Number(Math.max(0, ...runs.map(({ run }) => run.maxDrawdownPct)).toFixed(2)),
+    rejections,
     ...(note ? { note } : {}),
   };
+}
+
+function summarize(family: string, r: BacktestRun, note?: string): FamilyStat {
+  return summarizeMany(family, [{ symbol: "fixture", run: r }], note);
+}
+
+function canonicalize(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonicalize);
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([key, child]) => [key, canonicalize(child)]),
+    );
+  }
+  return value;
+}
+
+function canonicalHash(value: unknown): string {
+  return createHash("sha256").update(JSON.stringify(canonicalize(value))).digest("hex");
 }
 
 /** Per-bar relative-strength gate over real history: token vs benchmark, confirmed + rising volume. */
@@ -500,30 +538,67 @@ async function main(): Promise<void> {
   };
 
   let stats: FamilyStat[];
-  let equity: Array<{ time: string; equityUsd: number }>;
+  let equity: Array<{ family: string; symbol: string; time: string; equityUsd: number }>;
+  let evidence: Record<string, unknown>;
 
   if (real) {
     const days = Number(process.env.SKILL_BACKTEST_DAYS ?? 30);
-    const tokenSym = process.env.SKILL_BACKTEST_SYMBOL ?? "ETH";
     const benchSym = process.env.SKILL_BACKTEST_BENCHMARK ?? "BNB";
-    const token = await fetchCmcDailyBars(tokenSym, days);
+    const symbols = (process.env.SKILL_BACKTEST_SYMBOLS ?? "BTC,ETH,SOL,XRP,DOGE,ADA")
+      .split(",")
+      .map((s) => s.trim().toUpperCase())
+      .filter((s) => s && s !== benchSym);
     const bench = await fetchCmcDailyBars(benchSym, days);
-    const n = Math.min(token.length, bench.length);
-    // Real RS observations: token day-change vs the benchmark's day-change, with real volume.
-    const rsObs: SignalObservation[] = [];
-    for (let i = 0; i < n; i++) {
-      rsObs.push({
-        checkIso: token[i]!.time,
-        price: token[i]!.price,
-        volume24hUsd: token[i]!.volume24hUsd,
-        change24hPct: token[i]!.change24hPct,
-        benchmarkChange24hPct: bench[i]!.change24hPct,
-      });
+    const series = await Promise.all(
+      symbols.map(async (symbol) => ({ symbol, bars: await fetchCmcDailyBars(symbol, days) })),
+    );
+    const rsRuns: Array<{ symbol: string; run: BacktestRun }> = [];
+    const momentumRuns: Array<{ symbol: string; run: BacktestRun }> = [];
+    equity = [];
+    for (const { symbol, bars } of series) {
+      const n = Math.min(bars.length, bench.length);
+      const aligned = bars.slice(-n);
+      const alignedBench = bench.slice(-n);
+      const rsObs: SignalObservation[] = aligned.map((bar, i) => ({
+        checkIso: bar.time,
+        price: bar.price,
+        volume24hUsd: bar.volume24hUsd,
+        change24hPct: bar.change24hPct,
+        benchmarkChange24hPct: alignedBench[i]!.change24hPct,
+      }));
+      const tokenBars: Bar[] = aligned.map((b) => ({
+        time: b.time,
+        price: b.price,
+        atrPct: b.atrPct,
+      }));
+      const rsRun = familyBacktest(
+        tokenBars,
+        weekConfig.huntMinScore,
+        realRsScorer(rsObs, {
+          rsOutperformMinBps: defaults.entry_rs_continuation.rsOutperformMinBps as number,
+        }),
+      );
+      const momentumRun = familyBacktest(tokenBars, weekConfig.huntMinScore, smaScorer(tokenBars));
+      rsRuns.push({ symbol, run: rsRun });
+      momentumRuns.push({ symbol, run: momentumRun });
+      for (const point of rsRun.equityCurve) {
+        equity.push({
+          family: "rs_continuation",
+          symbol,
+          time: point.time,
+          equityUsd: Number(point.equityUsd.toFixed(4)),
+        });
+      }
+      for (const point of momentumRun.equityCurve) {
+        equity.push({
+          family: "momentum",
+          symbol,
+          time: point.time,
+          equityUsd: Number(point.equityUsd.toFixed(4)),
+        });
+      }
     }
-    const tokenBars: Bar[] = token.map((b) => ({ time: b.time, price: b.price, atrPct: b.atrPct }));
-    const momentumRun = familyBacktest(tokenBars, weekConfig.huntMinScore, smaScorer(tokenBars));
     stats = [
-      // Catalyst needs a trending-rank time series, absent from OHLCV history — honestly flagged.
       {
         family: "catalyst",
         evaluable: false,
@@ -533,16 +608,39 @@ async function main(): Promise<void> {
         totalReturnPct: 0,
         maxDrawdownPct: 0,
         rejections: {},
-        note: `not evaluable from OHLCV-only history (requires a CMC trending-rank time series). See METHODOLOGY.md; the catalyst rule is exercised in full in fixture mode.`,
+        note:
+          "not historically evaluable: CMC exposes current trending/gainers surfaces but no dated trending-rank series. " +
+          "Using market-cap rank or future-known 30d gainers as a substitute would violate the written strategy. " +
+          "The exact catalyst evaluator is exercised only by the labeled fixture until daily CMC rank snapshots exist.",
       },
-      summarize(
+      summarizeMany(
         "rs_continuation",
-        familyBacktest(tokenBars, weekConfig.huntMinScore, realRsScorer(rsObs, { rsOutperformMinBps: defaults.entry_rs_continuation.rsOutperformMinBps as number })),
-        `real relative strength: ${tokenSym} vs ${benchSym} over ${n} days`,
+        rsRuns,
+        `real relative strength across ${symbols.join(", ")} vs ${benchSym}; requested ${days} daily bars per asset`,
       ),
-      summarize("momentum", momentumRun, `SMA-crossover momentum on ${tokenSym} over ${n} days`),
+      summarizeMany(
+        "momentum",
+        momentumRuns,
+        `SMA-crossover momentum across ${symbols.join(", ")}; requested ${days} daily bars per asset`,
+      ),
     ];
-    equity = momentumRun.equityCurve.map((p) => ({ time: p.time, equityUsd: Number(p.equityUsd.toFixed(4)) }));
+    evidence = {
+      requested_days: days,
+      benchmark: benchSym,
+      universe: symbols.map((symbol, i) => ({
+        symbol,
+        tier: i < 2 ? "large-cap" : i < 4 ? "liquid-major" : "liquid-alt",
+        bars: series.find((x) => x.symbol === symbol)!.bars.length,
+      })),
+      window_start: series
+        .flatMap((x) => x.bars.map((b) => b.time))
+        .sort()[0],
+      window_end: series
+        .flatMap((x) => x.bars.map((b) => b.time))
+        .sort()
+        .at(-1),
+      catalyst_history_available: false,
+    };
   } else {
     const momBars = momentumEpisode();
     stats = [
@@ -550,12 +648,19 @@ async function main(): Promise<void> {
       summarize("rs_continuation", familyBacktest(rsEpisode().bars, weekConfig.huntMinScore, () => 81)),
       summarize("momentum", familyBacktest(momBars, weekConfig.huntMinScore, smaScorer(momBars))),
     ];
-    equity = familyBacktest(momBars, weekConfig.huntMinScore, smaScorer(momBars)).equityCurve.map((p) => ({ time: p.time, equityUsd: Number(p.equityUsd.toFixed(4)) }));
+    equity = familyBacktest(momBars, weekConfig.huntMinScore, smaScorer(momBars)).equityCurve.map(
+      (p) => ({
+        family: "momentum",
+        symbol: "MOMTKN",
+        time: p.time,
+        equityUsd: Number(p.equityUsd.toFixed(4)),
+      }),
+    );
+    evidence = { fixture: true };
   }
 
-  const report = {
+  const reportCore = {
     skill: "wardenclaw-doctrine",
-    generatedAt: real ? new Date().toISOString() : iso(0),
     mode: "backtest",
     data_source: dataSource,
     is_real_market_evidence: real,
@@ -563,14 +668,22 @@ async function main(): Promise<void> {
       ? "Real CMC daily OHLCV history. Defaults (defaults.json) only; the private calibrated config was not used."
       : "DOCUMENTED SYNTHETIC FIXTURE — runnable demo and schema-validity evidence only, NOT real-market performance. Run with SKILL_BACKTEST_REAL=1 and CMC_API_KEY for real evidence.",
     parameters_source: "defaults.json (public reference defaults)",
+    evidence,
     perFamily: stats,
+  };
+  const report = {
+    ...reportCore,
+    generatedAt: real ? new Date().toISOString() : iso(0),
+    evidence_hash_sha256: canonicalHash(reportCore),
   };
 
   if (real) {
     writeFileSync(join(RESULTS_DIR, "per-family.json"), JSON.stringify(report, null, 2) + "\n", "utf8");
     writeFileSync(
       join(RESULTS_DIR, "equity-curve.csv"),
-      "time,equityUsd\n" + equity.map((p) => `${p.time},${p.equityUsd}`).join("\n") + "\n",
+      "family,symbol,time,equityUsd\n" +
+        equity.map((p) => `${p.family},${p.symbol},${p.time},${p.equityUsd}`).join("\n") +
+        "\n",
       "utf8",
     );
     console.log(`[skill:backtest] REAL run written to ${RESULTS_DIR}`);
