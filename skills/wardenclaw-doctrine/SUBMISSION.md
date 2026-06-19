@@ -49,10 +49,11 @@ artifact.
   on-chain. The Skill is the same brain, published as a spec — not a hypothetical.
 - **Demo.** Two commands: `pnpm install` then `pnpm skill:backtest` — replays the spec over
   price history using only `defaults.json`, applies modeled friction, and emits schema-valid
-  signals. A **real** run over ~90 days of CMC OHLCV history (ETH vs BNB) is committed in
+  signals. A **real** 30-day run across twelve liquid assets versus BNB is committed in
   `backtest/results/`; reproduce with `CMC_API_KEY=… SKILL_BACKTEST_REAL=1 pnpm skill:backtest`.
-  The real results are deliberately modest (un-tuned conservative defaults) — honest, not
-  inflated.
+  Catalyst is explicitly non-evaluable without historical CMC trending ranks; RS produced no
+  closed trades; momentum results are modest and negative under un-tuned defaults. Nothing is
+  inflated or backfilled.
 
 ## Honest stance on parameters
 

@@ -33,23 +33,26 @@ A **real run was executed** against real CMC daily OHLCV history (a CMC key with
 access was used at run time; the key is never committed). Committed evidence:
 
 - **`results/per-family.json`** + **`results/equity-curve.csv`** — the **real** run
-  (`is_real_market_evidence: true`, `data_source: "cmc-history"`), ~90 days of ETH (token) vs
-  BNB (benchmark) daily history, defaults-only, friction applied.
+  (`is_real_market_evidence: true`, `data_source: "cmc-history"`), 30 daily bars for twelve
+  liquid assets (BTC, ETH, SOL, XRP, DOGE, ADA, LINK, AVAX, DOT, LTC, BCH, UNI) versus BNB,
+  defaults-only, friction applied. The JSON embeds a canonical SHA-256 evidence hash.
 - **`results/FIXTURE_demo-run.json`** — the clearly-labeled **synthetic fixture** run
   (`is_real_market_evidence: false`), so the demo is inspectable without a key.
 
-What the real run found (honestly, not flatteringly): over a choppy ~90-day window with
-**un-tuned conservative defaults**, the SMA-momentum family took 2 trades for a small net
-loss, and the relative-strength family took **0** trades (ETH did not clear the conservative
-200 bps outperformance-vs-BNB bar on two consecutive days with rising volume). This is the
-point of publishing reference defaults rather than the calibrated edge — see the caveats below.
+What the real run found (honestly, not flatteringly): over the 30-day cross-sectional window
+with **un-tuned conservative defaults**, momentum took 15 closed trades with a 33.3% hit rate,
+−0.52% average realized move, −1.40% mean return across the twelve independent asset sleeves,
+and 9.98% worst sleeve drawdown. Relative strength produced qualifying attempts but **0 closed
+trades** after the unchanged stop-coherence and friction gates. Catalyst is explicitly marked
+not historically evaluable because CMC does not expose a dated trending-rank series. These are
+reference-default results, not a claim of edge.
 
 Reproduce it yourself (real historical OHLCV requires a CMC plan that includes the historical
 endpoint):
 
 ```bash
 CMC_API_KEY=your_key SKILL_BACKTEST_REAL=1 pnpm skill:backtest
-# optional: SKILL_BACKTEST_DAYS=90 SKILL_BACKTEST_SYMBOL=ETH SKILL_BACKTEST_BENCHMARK=BNB
+# optional: SKILL_BACKTEST_DAYS=30 SKILL_BACKTEST_SYMBOLS=BTC,ETH,... SKILL_BACKTEST_BENCHMARK=BNB
 ```
 
 ## Honesty caveats (read these)
@@ -63,11 +66,12 @@ CMC_API_KEY=your_key SKILL_BACKTEST_REAL=1 pnpm skill:backtest
   friction model). The live wallet floor uses costs *measured from real fills*; a backtest has
   no fills, so the wallet floor is modeled or skipped and labeled as such.
 - **Past ≠ future.** A backtest over any window — synthetic or real — is not a forecast.
-- **Catalyst family in real mode:** the historical OHLCV endpoint provides price/volume but
-  **not** a trending-rank time series, so the catalyst rank-delta check (spec §2, A1) cannot be
-  reconstructed from OHLCV alone; in real mode the catalyst family is reported on the
-  price/volume legs only. The fixture mode exercises the full catalyst rule, including
-  rank-delta. This limitation is the data source's, not the spec's.
+- **Catalyst family in real mode:** CMC historical OHLCV provides price/volume, and its
+  current trending/gainers surfaces provide present-time rankings, but CMC exposes no dated
+  trending-rank series. The catalyst rank-delta check (spec §2, A1) therefore cannot be
+  reconstructed honestly for past dates. Real mode marks that family **not evaluable** rather
+  than substituting market-cap rank or leaking future information. The fixture mode exercises
+  the exact catalyst rule, including rank-delta.
 
 A panel should trust a spec that states its limits over one that claims a 90% win rate. These
 caveats are the point.

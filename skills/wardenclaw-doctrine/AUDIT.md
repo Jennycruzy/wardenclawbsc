@@ -74,8 +74,8 @@ skill folder only documentation (`README.md`, `docs/SELF_AUDIT.md`, `docs/BNB_SU
 `docs/SPECIAL_PRIZES.md`, `AGENTS.md`) and `package.json` (three `skill:*` script additions)
 changed — **no `packages/`, `apps/`, `scripts/`, or `ops/` source was touched.**
 
-> Note on `results/`: a **real** run was executed against real CMC daily OHLCV history (ETH vs
-> BNB, ~90 days) — committed as `results/per-family.json` + `results/equity-curve.csv`
+> Note on `results/`: a **real** run was executed against 30 daily CMC OHLCV bars across
+> twelve liquid assets versus BNB — committed as `results/per-family.json` + `results/equity-curve.csv`
 > (`is_real_market_evidence: true`). The CMC key was used only at run time and is never
 > committed (verified absent from the folder). The results are deliberately modest/unflattering
 > (un-tuned conservative defaults); see `backtest/METHODOLOGY.md`. Check 6 verifies the results

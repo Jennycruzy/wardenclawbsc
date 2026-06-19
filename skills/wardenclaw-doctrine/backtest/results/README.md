@@ -7,8 +7,9 @@ Evidence directory for the skill backtest.
   produces the expected per-family behavior. It is **not** real-market performance evidence.
 
 - **`per-family.json` + `equity-curve.csv`** — the **real** run
-  (`is_real_market_evidence: true`, `data_source: "cmc-history"`): ~90 days of real ETH vs BNB
-  daily OHLCV, defaults-only, friction applied. Reproduce with:
+  (`is_real_market_evidence: true`, `data_source: "cmc-history"`): 30 daily bars across
+  twelve liquid assets versus BNB, defaults-only, friction applied. Catalyst is marked not
+  historically evaluable because CMC has no dated trending-rank series. Reproduce with:
 
   ```bash
   CMC_API_KEY=your_key SKILL_BACKTEST_REAL=1 pnpm skill:backtest
