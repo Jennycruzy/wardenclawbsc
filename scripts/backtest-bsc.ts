@@ -2,7 +2,7 @@
  * Backtest the BSC momentum strategy over a price series, running the SAME
  * economics the live agent uses — friction (gas + slippage + LP fee + simulated
  * scoring cost), the net-edge gate, and volatility-stop coherence — so results
- * reflect the actual scored economics on a $40 book. Writes a report to
+ * reflect the actual scored economics on a micro-capital book. Writes a report to
  * data/backtests/. Uses a documented synthetic series when no real series is fed.
  *
  *   pnpm backtest:bsc

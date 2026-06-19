@@ -36,8 +36,7 @@ artifact.
 
 - **Technical execution.** Deterministic and reimplementable from `strategy-spec.md` alone;
   every emitted signal validates against `signals.schema.json` (`pnpm skill:validate`); a
-  friction-honest backtest runner reuses the live agent's own economics engine; a self-audit
-  (`pnpm skill:audit`) enforces format, schema, no-execution-surface, no-leak, and additivity.
+  friction-honest backtest runner reuses the live agent's own economics engine.
 - **Originality.** Regime-parked flatness as a position, *uncrowded* catalyst entries keyed on
   rank-delta with an explicit no-first-spike rule, a two-ledger cost model, and tournament-aware
   risk scheduling — this is not another RSI/MACD blend.
@@ -61,10 +60,10 @@ The Skill publishes the **full framework** with documented **public reference de
 intentionally does **not** publish the live agent's *calibrated* values (tuned score bands,
 calibrated score→move mapping, deployed thresholds): the submission is public on June 21 and
 the scored window opens June 22, so publishing the calibrated edge would invite mirroring. A
-calibration procedure is included so anyone can tune the defaults on recent data; `AUDIT.md`
-verifies no private value leaked. Backtest results are real-or-absent, never fabricated.
+calibration procedure is included so anyone can tune the defaults on recent data. Backtest
+results are real-or-absent, never fabricated.
 
 ## How to read it
 
 `SKILL.md` (the Skill) → `strategy-spec.md` (the full rules) → `signals.schema.json` (the
-output contract) → `backtest/` (runner + methodology + evidence) → `AUDIT.md` (self-audit).
+output contract) → `backtest/` (runner + methodology + evidence).

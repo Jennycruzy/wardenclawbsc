@@ -1,9 +1,12 @@
 # WARDENCLAW BSC — PnL-First Autonomous BSC Trading Agent
 
+**Live demo:** [wardenclawbsc.duckdns.org](https://wardenclawbsc.duckdns.org/bsc)
+
 A self-custodial, spot-only BSC trading agent for **Track 1** of the BNB Hack:
-AI Trading Agent Edition. It starts from **$40**, trades only the verified eligible
-BEP-20 list **by contract address**, and optimizes for **total return under the
-disqualification drawdown cap** with simulated transaction costs applied.
+AI Trading Agent Edition. It uses organizer-authorized starting capital, trades
+only the verified eligible BEP-20 list **by contract address**, and optimizes for
+**total return under the disqualification drawdown cap** with simulated
+transaction costs applied.
 
 > CMC is its eyes, TWAK is its hands, the BNB SDK is its nervous system — it only
 > trades when measured edge clears real friction plus the competition's simulated
@@ -50,9 +53,9 @@ strategy explanation — it can never choose a trade, size one, or bypass a gate
   news shocks / volatility breakouts within the catalyst tier — the return engine,
   traded only through every gate with governor sizing.
 
-## Micro-capital economics ($40 book)
+## Micro-capital economics
 
-Friction dominates a $40 book, and the competition charges a simulated cost too —
+Friction dominates a micro-capital book, and the competition charges a simulated cost too —
 every trade pays twice. The **net-edge gate** blocks any trade whose calibrated
 expected move doesn't clear real friction + simulated cost + margin. Stops are
 **volatility-derived** and **position size is derived from the stop**; if the
@@ -95,7 +98,7 @@ pnpm verify:integrations            # readiness report
 pnpm check:cmc                      # real key/client/surface proof
 pnpm build:eligible-tokens          # CMC-resolved contracts (needs CMC_API_KEY)
 pnpm calibrate:edge                 # tune the score→move mapping on real history
-pnpm backtest:bsc                   # economics on the $40 book
+pnpm backtest:bsc                   # economics on the configured book
 pnpm demo:twak-refusal              # TWAK refuses bad trades, live
 pnpm run:bsc-agent                  # dry decision run on real CMC data (no signing)
 pnpm rehearsal:checklist            # §0.12 gate → docs/PREFLIGHT.md

@@ -36,12 +36,12 @@ pnpm --filter @wardenclaw/web dev     # http://localhost:3000/bitget
 Execution is always labeled (`internal_paper_engine`); fills are simulated on real
 prices, never presented as exchange fills.
 
-## BNB / BSC submission (spot-only, $40)
+## BNB / BSC submission (spot-only, configured capital)
 
 ```bash
 pnpm build:eligible-tokens          # CMC-resolved contracts (needs CMC_API_KEY)
 pnpm calibrate:edge                 # tune score→expected-move on real history
-pnpm backtest:bsc                   # economics on the $40 book
+pnpm backtest:bsc                   # economics on the configured book
 pnpm demo:twak-refusal              # TWAK refuses bad trades (no funds move)
 pnpm run:bsc-agent                  # dry decision run on real CMC data (no signing)
 pnpm --filter @wardenclaw/web dev     # http://localhost:3000/bsc and /bsc/proof

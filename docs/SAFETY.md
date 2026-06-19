@@ -1,7 +1,7 @@
 # Safety
 
-This is hackathon trading, not investment advice. The defaults target a ~$40
-spot-only book under the verified Track 1 rules.
+This is hackathon trading, not investment advice. The defaults target a
+micro-capital, spot-only book under the verified Track 1 rules.
 
 ## Custody
 

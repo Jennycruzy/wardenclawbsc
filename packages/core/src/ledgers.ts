@@ -3,7 +3,7 @@
  *
  * The competition scores SIMULATED transaction costs, not live TWAK quotes, so
  * the number that wins the tournament (Scored Ledger) is NOT the number in the
- * real $40 wallet (Wallet Ledger). We keep them separate on purpose:
+ * real wallet capital (Wallet Ledger). We keep them separate on purpose:
  *
  *   • Scored Ledger  — price moves minus the simulated scoring cost. Drives the
  *     net-edge gate and the /bsc/proof leaderboard view (what judges rank).

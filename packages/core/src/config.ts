@@ -3,12 +3,12 @@
  *
  * These are the values the risk engine enforces at execution time. They can be
  * configured (via env / strategy JSON) but are non-negotiable once a mandate is
- * evaluated — the LLM cannot bypass them. Defaults target a ~$40 spot-only book
+ * evaluated — the LLM cannot bypass them. Defaults target a micro-capital spot-only book
  * on the verified BNB competition rules.
  */
 
 export interface RiskConfig {
-  // Capital & sizing ($40 book)
+  // Capital & sizing
   startingCapitalUsd: number;
   gasReserveUsd: number; // native BNB for gas only — not portfolio capital
   maxConcurrentPositions: number;

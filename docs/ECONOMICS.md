@@ -1,6 +1,6 @@
 # Win-First Economics
 
-A $40 spot book must win the scoring model without bleeding the real wallet.
+A micro-capital spot book must win the scoring model without bleeding the real wallet.
 WARDENCLAW therefore keeps two independent ledgers.
 
 ## Two ledgers

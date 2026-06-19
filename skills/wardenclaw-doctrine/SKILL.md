@@ -106,7 +106,7 @@ cost-honest. Per-family stats and the equity curve land in
   the spec is venue-agnostic.
 - **Public framework, private calibration.** The full framework ships with honest reference
   defaults; the live agent's *calibrated* values are intentionally not published here
-  (see `strategy-spec.md` §12 and `AUDIT.md`). Calibrate on recent data before deploying.
+  (see `strategy-spec.md` §12). Calibrate on recent data before deploying.
 
 ## Reference files
 
@@ -116,4 +116,4 @@ cost-honest. Per-family stats and the equity curve land in
 - `backtest/` — runner, methodology, and committed results.
 - `examples/example-signals.jsonl` — real emitted signals from a backtest run.
 - `FORMAT_NOTES.md` — the CMC Skill format this file conforms to.
-- `SUBMISSION.md` — the Track 2 submission text. `AUDIT.md` — the skill self-audit.
+- `SUBMISSION.md` — the Track 2 submission text.

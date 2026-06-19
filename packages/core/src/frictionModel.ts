@@ -1,7 +1,7 @@
 /**
  * Micro-capital friction model.
  *
- * On a ~$40 spot book friction dominates PnL, and the competition also charges a
+ * On a micro-capital spot book friction dominates PnL, and the competition also charges a
  * simulated transaction cost against scored return — so every trade pays twice.
  * This computes round-trip friction in basis points of notional.
  */

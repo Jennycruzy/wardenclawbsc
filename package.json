@@ -25,8 +25,7 @@
     "explain:strategy": "tsx scripts/explain-strategy.ts",
     "check:cmc": "tsx scripts/check-cmc-wiring.ts",
     "skill:backtest": "tsx skills/wardenclaw-doctrine/backtest/run-skill-backtest.ts",
-    "skill:validate": "tsx skills/wardenclaw-doctrine/scripts/validate-signals.ts",
-    "skill:audit": "tsx skills/wardenclaw-doctrine/scripts/audit.ts"
+    "skill:validate": "tsx skills/wardenclaw-doctrine/scripts/validate-signals.ts"
   },
   "devDependencies": {
     "@wardenclaw/bnb-agent": "workspace:*",

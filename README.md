@@ -12,7 +12,7 @@ window:
 - **Execution:** eligible BEP-20 spot swaps through PancakeSwap
 - **Custody:** Trust Wallet Agent Kit (TWAK) is the only BSC trade executor
 - **Perception:** CoinMarketCap quotes, trending, Fear & Greed, and x402
-- **Default book:** $40 in eligible stables, with separate native BNB for gas
+- **Book:** organizer-authorized capital in eligible stables, with separate native BNB for gas
 
 The LLM may produce structured perception or narration upstream. It cannot score,
 size, approve, sign, or execute a trade. Every execution decision is made by the
@@ -20,8 +20,7 @@ deterministic gate chain.
 
 ## Current Status
 
-The win-first upgrade, operations pass, and final self-audit are implemented on
-`main`.
+The win-first upgrade and operations pass are implemented on `main`.
 
 - `pnpm typecheck`: green
 - `pnpm lint`: green
@@ -222,10 +221,10 @@ DoraHacks explanation. With no LLM key, trading remains deterministic and
 
 ## Configure Capital
 
-The default competition configuration is:
+Set the competition configuration to the organizer-authorized amount:
 
 ```env
-STARTING_CAPITAL_USD=40
+STARTING_CAPITAL_USD=<AUTHORIZED_AMOUNT>
 GAS_RESERVE_USD=2
 ```
 
@@ -380,7 +379,6 @@ care during the competition.
 | `pnpm verify:integrations -- --live` | Fail if required live integrations are missing |
 | `pnpm skill:backtest` | Track 2 Skill: replay the doctrine spec over price history (defaults only) |
 | `pnpm skill:validate` | Track 2 Skill: validate emitted signals against the JSON schema |
-| `pnpm skill:audit` | Track 2 Skill: self-audit (format, schema, no-execution, no-leak, additivity) |
 
 ## Documentation
 
@@ -392,9 +390,10 @@ care during the competition.
 - [LLM policy](docs/LLM_POLICY.md)
 - [Competition rules](docs/COMPETITION_RULES.md)
 - [BNB submission guide](docs/BNB_SUBMISSION.md)
+- [Strategy explanation](docs/STRATEGY_EXPLANATION.md)
+- [Combined Track 1 + Track 2 demo script](docs/DEMO_SCRIPT.md)
 - [Special-prize evidence](docs/SPECIAL_PRIZES.md)
 - [Deployment](docs/DEPLOYMENT.md)
-- [Final self-audit](docs/SELF_AUDIT.md)
 - [Track 2 Strategy Skill](skills/wardenclaw-doctrine/SKILL.md) — `wardenclaw-doctrine` (spec-only CMC Skill)
 
 ## Track 2 Skill — wardenclaw-doctrine

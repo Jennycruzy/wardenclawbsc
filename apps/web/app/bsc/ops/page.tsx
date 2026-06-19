@@ -197,7 +197,7 @@ export default function BscOps() {
         </Card>
 
         <Card>
-          <SectionTitle title="Measured TWAK round-trip cost" subtitle="The real $40 cost — measured from fills, never hardcoded — driving the wallet floor and dust gate" />
+          <SectionTitle title="Measured TWAK round-trip cost" subtitle="Real wallet cost — measured from fills, never hardcoded — driving the wallet floor and dust gate" />
           {walletCost ? (
             <div className="space-y-1">
               <div className="flex items-center justify-between border-b border-line/50 py-2.5">

@@ -127,7 +127,7 @@ export default function BscProof() {
       </div>
 
       <div className="mt-3">
-        <SectionTitle title="Trade ledger" subtitle="Two ledgers per trade — scored (competition simulated cost) drives the gate; wallet (measured real round-trip) protects the $40" />
+        <SectionTitle title="Trade ledger" subtitle="Two ledgers per trade — scored (competition simulated cost) drives the gate; wallet (measured real round-trip) protects real capital" />
         {walletCost ? (
           <div className="mb-3 flex flex-wrap items-center gap-2 text-xs text-ink-muted">
             <Badge tone={walletCost.measured ? "pos" : "neutral"}>

@@ -168,7 +168,7 @@ async function main(): Promise<void> {
       result,
       mode: "rehearsal",
       strategyId: "bsc-two-family",
-      naturalLanguageIntent: "Momentum + catalyst over the eligible list, spot only, $40 book.",
+      naturalLanguageIntent: "Momentum + catalyst over the eligible list, spot only, configured book.",
       compiledStrategy: {},
       assetContract: token.bscContractAddress,
       cmcToolsUsed: momentum.toolsUsed,

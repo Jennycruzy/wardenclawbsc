@@ -369,4 +369,4 @@ thresholds, press/defend triggers, and `netEdgeMinBps` **as actually deployed**.
 a private runtime config and are never copied here. The submission is public on **June 21,
 2026**; the scored trading window opens **June 22** — publishing the calibrated edge would
 invite mirroring during the scored week. Splitting public framework from private calibration
-is standard published-strategy practice; `AUDIT.md` verifies no private value leaked.
+is standard published-strategy practice.

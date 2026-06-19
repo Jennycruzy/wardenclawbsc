@@ -8,7 +8,7 @@
  *          expectedMoveBps >= scoredFrictionBps + netEdgeMinBps
  *      This is the number that wins the tournament.
  *
- *   2. Wallet floor — a hard sanity check that the real $40 is never knowingly
+ *   2. Wallet floor — a hard sanity check that real wallet capital is never knowingly
  *      traded into wallet-negative territory even when the scored math says go:
  *          expectedMoveBps >= walletFloorFraction × realRoundTripBps
  *      `realRoundTripBps` is MEASURED from real fills (never hardcoded). Skipped
@@ -82,7 +82,7 @@ export function evaluateNetEdge(inputs: NetEdgeInputs): NetEdgeResult {
     };
   }
 
-  // 2. Wallet floor — protect the real $40 even when scored math passes.
+  // 2. Wallet floor — protect real wallet capital even when scored math passes.
   if (hasWalletFloor && !walletFloorPassed) {
     return {
       passed: false,

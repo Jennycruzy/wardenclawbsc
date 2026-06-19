@@ -94,6 +94,6 @@ curl -X POST https://<your-host>:4000/kill -H "authorization: Bearer $KILL_SWITC
 - [ ] Root password rotated; password SSH login disabled; key-only access.
 - [ ] `.env`, `~/.twak`, and the sidecar venv are mode-restricted and never committed.
 - [ ] The x402 Base wallet holds only a small USDC float.
-- [ ] The agent wallet holds only the ~$40 book + gas.
+- [ ] The agent wallet holds only the organizer-authorized book + gas.
 - [ ] `KILL_SWITCH_TOKEN` is strong and the `/kill` endpoint is reachable from your phone.
 - [ ] Alerts confirmed arriving on your phone (`POST /alert/test`).

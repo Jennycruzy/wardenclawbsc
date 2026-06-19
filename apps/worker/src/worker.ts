@@ -282,7 +282,7 @@ async function resolveTradingWallet(): Promise<string | undefined> {
   }
 }
 
-// An unlimited ERC20 approval is MaxUint256 (~1.16e77). No bounded approval a $40 book
+// An unlimited ERC20 approval is MaxUint256 (~1.16e77). No bounded approval a micro-capital book
 // would ever grant approaches 2^200 (~1.6e60), so this cleanly flags the unlimited
 // pattern regardless of token decimals or price — without false-positiving on a real
 // per-trade approval. TWAK signs the approvals internally (the swap CLI takes no
@@ -1763,7 +1763,7 @@ async function main(): Promise<void> {
           result: e.result,
           mode: mode === "live" ? "live" : "rehearsal",
           strategyId: "bsc-two-family",
-          naturalLanguageIntent: "Momentum + catalyst over the eligible list, spot only, $40 book.",
+          naturalLanguageIntent: "Momentum + catalyst over the eligible list, spot only, configured book.",
           compiledStrategy: {},
           assetContract: e.token.bscContractAddress,
           cmcToolsUsed: e.tools,
