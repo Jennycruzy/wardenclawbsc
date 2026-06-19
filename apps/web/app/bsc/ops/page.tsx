@@ -78,11 +78,14 @@ export default function BscOps() {
           {[
             ["1. Register with TWAK", preflight.registered],
             ["2. Build eligible tokens", preflight.eligibleTokensBuilt],
-            ["3. Fund wallet + gas", false],
-            ["4. $5 rehearsal + watchdog/trail exits", preflight.rehearsalPassed],
+            ["3. Fund wallet + gas", preflight.walletFunded],
+            ["4. Rehearsal swap + watchdog exit", preflight.executionRehearsalComplete],
             ["5. Run calibration", preflight.calibrationPresent],
-            ["6. Phone alerts + kill-switch", preflight.alertsConfigured && preflight.killSwitchConfigured],
-            ["7. DoraHacks submission", false],
+            [
+              "6. Phone alerts + kill-switch",
+              preflight.alertsConfigured && preflight.killSwitchConfigured && preflight.phoneSafetyConfirmed,
+            ],
+            ["7. DoraHacks submission", preflight.dorahacksSubmitted],
           ].map(([label, done]) => (
             <div key={String(label)} className="flex items-center gap-2 rounded-md border border-line/60 px-2.5 py-2">
               <Dot tone={done ? "pos" : "warn"} />

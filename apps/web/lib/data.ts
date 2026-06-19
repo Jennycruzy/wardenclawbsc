@@ -276,29 +276,48 @@ export interface PreflightStatus {
   registered: boolean;
   walletConfigured: boolean;
   rehearsalPassed: boolean;
+  walletFunded: boolean;
+  executionRehearsalComplete: boolean;
   calibrationPresent: boolean;
   alertsConfigured: boolean;
   killSwitchConfigured: boolean;
+  phoneSafetyConfirmed: boolean;
+  dorahacksSubmitted: boolean;
 }
 
 export function readPreflightStatus(): PreflightStatus {
   let rehearsalPassed = false;
+  const completedChecks = new Map<number, boolean>();
   const rehearsal = join(RUNTIME_DIR, "rehearsal.json");
   if (existsSync(rehearsal)) {
     try {
-      rehearsalPassed = Boolean((JSON.parse(readFileSync(rehearsal, "utf8")) as { passed?: boolean }).passed);
+      const parsed = JSON.parse(readFileSync(rehearsal, "utf8")) as {
+        passed?: boolean;
+        checks?: Array<{ id?: number; pass?: boolean }>;
+      };
+      rehearsalPassed = Boolean(parsed.passed);
+      for (const check of parsed.checks ?? []) {
+        if (typeof check.id === "number") completedChecks.set(check.id, Boolean(check.pass));
+      }
     } catch {
       rehearsalPassed = false;
     }
   }
+  const envTrue = (name: string): boolean => process.env[name] === "true" || process.env[name] === "1";
   return {
     eligibleTokensBuilt: existsSync(join(ROOT, process.env.ELIGIBLE_TOKENS_PATH ?? "data/eligible-tokens.json")),
     registered: Boolean(process.env.REGISTRATION_TX_HASH),
     walletConfigured: Boolean(process.env.TWAK_AGENT_WALLET),
     rehearsalPassed,
+    walletFunded: envTrue("WALLET_FUNDED_CONFIRMED") || completedChecks.get(5) === true,
+    executionRehearsalComplete: completedChecks.get(9) === true && completedChecks.get(10) === true,
     calibrationPresent: existsSync(join(ROOT, "data", "calibration.json")),
     alertsConfigured: Boolean(process.env.ALERT_WEBHOOK_URL),
     killSwitchConfigured: Boolean(process.env.KILL_SWITCH_TOKEN),
+    phoneSafetyConfirmed:
+      (envTrue("KILL_SWITCH_LIVE_TEST_CONFIRMED") || completedChecks.get(12) === true) &&
+      (envTrue("ALERTS_PHONE_CONFIRMED") || completedChecks.get(15) === true),
+    dorahacksSubmitted: envTrue("DORAHACKS_SUBMITTED") || completedChecks.get(4) === true,
   };
 }
 
