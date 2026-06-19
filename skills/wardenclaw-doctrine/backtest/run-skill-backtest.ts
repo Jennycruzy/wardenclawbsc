@@ -544,7 +544,9 @@ async function main(): Promise<void> {
   if (real) {
     const days = Number(process.env.SKILL_BACKTEST_DAYS ?? 30);
     const benchSym = process.env.SKILL_BACKTEST_BENCHMARK ?? "BNB";
-    const symbols = (process.env.SKILL_BACKTEST_SYMBOLS ?? "BTC,ETH,SOL,XRP,DOGE,ADA")
+    const symbols = (
+      process.env.SKILL_BACKTEST_SYMBOLS ?? "BTC,ETH,SOL,XRP,DOGE,ADA,LINK,AVAX,DOT,LTC,BCH,UNI"
+    )
       .split(",")
       .map((s) => s.trim().toUpperCase())
       .filter((s) => s && s !== benchSym);
