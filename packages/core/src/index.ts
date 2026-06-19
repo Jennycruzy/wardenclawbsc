@@ -35,4 +35,5 @@ export * from "./replayEngine.js";
 export * from "./backtester.js";
 export * from "./proofAnchors.js";
 export * from "./competitionRules.js";
+export * from "./competitionWindow.js";
 export * from "./llm/index.js";

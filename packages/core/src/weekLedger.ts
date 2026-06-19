@@ -41,6 +41,27 @@ export function recordLeg(
   return { ...ledger, legs: [...ledger.legs, { atIso, kind }] };
 }
 
+/** Remove rehearsal/preflight legs from the persisted competition ledger. */
+export function sanitizeWeekLedgerForWindow(
+  ledger: WeekLedger,
+  startIso: string,
+  endIso: string,
+): WeekLedger {
+  const start = Date.parse(startIso);
+  const end = Date.parse(endIso);
+  const legs = ledger.legs.filter((leg) => {
+    const timestamp = Date.parse(leg.atIso);
+    return Number.isFinite(timestamp) && timestamp >= start && timestamp <= end;
+  });
+  if (legs.length === ledger.legs.length) return ledger;
+  return {
+    ...ledger,
+    peakValueUsd: ledger.startValueUsd,
+    legs,
+    pressTradeUsed: false,
+  };
+}
+
 export function consumePressTrade(ledger: WeekLedger): WeekLedger {
   return ledger.pressTradeUsed ? ledger : { ...ledger, pressTradeUsed: true };
 }

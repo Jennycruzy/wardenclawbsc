@@ -16,7 +16,7 @@ export interface FrictionInputs {
   expectedSlippageBps: number;
   /** PancakeSwap pool fee for the pair, in bps (one leg). */
   lpFeeBps: number;
-  /** Competition's simulated cost per leg (conservative default until confirmed). */
+  /** Competition's simulated cost per leg (internal safety assumption until confirmed). */
   scoringSimCostBps: number;
   /** TWAK executor swap fee per leg, in bps (e.g. 7.7 = 0.077% waived rate). */
   twakFeeBps?: number;

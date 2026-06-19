@@ -48,6 +48,8 @@ import {
   weekElapsedFraction,
   serializeWeekLedger,
   parseWeekLedger,
+  sanitizeWeekLedgerForWindow,
+  isInCompetitionWindow,
   updateDailyDrawdown,
   serializeDailyAnchor,
   parseDailyAnchor,
@@ -757,7 +759,11 @@ async function main(): Promise<void> {
     reservedLegsPerDay: config.minTradesPerDay,
     weekLengthDays,
   };
-  let weekLedger = loadWeekLedger(weekStartIso, config.startingCapitalUsd);
+  let weekLedger = sanitizeWeekLedgerForWindow(
+    loadWeekLedger(weekStartIso, config.startingCapitalUsd),
+    weekStartIso,
+    weekEndIso,
+  );
   saveWeekLedger(weekLedger);
   let dailyAnchor = loadDailyAnchor();
   let windowDrawdownAnchor = loadWindowDrawdownAnchor();
@@ -1121,7 +1127,10 @@ async function main(): Promise<void> {
               }) /
                 10_000) *
               pos.notionalUsd;
-            weekLedger = recordLeg(weekLedger, "exit");
+            const exitAt = new Date().toISOString();
+            if (isInCompetitionWindow(exitAt, weekStartIso, weekEndIso)) {
+              weekLedger = recordLeg(weekLedger, "exit", exitAt);
+            }
             saveBook(book);
             saveWeekLedger(weekLedger);
             recordedExitTxHash = outcome.receipt.txHash;
@@ -1297,7 +1306,11 @@ async function main(): Promise<void> {
       // reads actual stable cash plus marked-to-market open fills.
       const walletValueUsd = await currentWalletValueUsd();
       const currentValueUsd = book.scoredValueUsd;
-      weekLedger = recordWeekValue(weekLedger, currentValueUsd);
+      const nowIso = new Date().toISOString();
+      const competitionWindowActive = isInCompetitionWindow(nowIso, weekStartIso, weekEndIso);
+      if (competitionWindowActive) {
+        weekLedger = recordWeekValue(weekLedger, currentValueUsd);
+      }
       // Drawdown safety is marked to market, including unrealized open-position PnL.
       // The scored ledger remains separate for competition economics and week doctrine.
       const competitionWindowStarted = Date.now() >= Date.parse(weekStartIso);
@@ -1696,15 +1709,17 @@ async function main(): Promise<void> {
         },
         config,
       );
-      if (schedule.dailyTradeAtRisk) {
+      if (competitionWindowActive && schedule.dailyTradeAtRisk) {
         await sendAlert(process.env.ALERT_WEBHOOK_URL, {
           reason: "daily_trade_at_risk",
           message: schedule.reason,
           timestamp: now.toISOString(),
         });
       }
-      if (schedule.plan === "hold") winner = undefined;
-      if (schedule.plan === "micro_scout") {
+      if (schedule.plan === "hold" || (!competitionWindowActive && schedule.plan === "micro_scout")) {
+        winner = undefined;
+      }
+      if (competitionWindowActive && schedule.plan === "micro_scout") {
         // Alternate direction so the scout reserve round-trips instead of stranding on
         // USDC: out of USDT when we hold USDT, back to USDT when we hold the prior scout's
         // USDC. resolvePool always reports reserves with the USDT side as reserveIn, so we
@@ -1826,7 +1841,9 @@ async function main(): Promise<void> {
                   continue;
                 }
                 book.walletCashUsd += outcome.receipt.realizedOut - e.result.economics.positionSizeUsd;
-                weekLedger = recordLeg(weekLedger, "scout", filledAt);
+                if (isInCompetitionWindow(filledAt, weekStartIso, weekEndIso)) {
+                  weekLedger = recordLeg(weekLedger, "scout", filledAt);
+                }
                 // The scout reserve has moved to the other stable; next scout reverses it.
                 scoutHeldStable = scoutHeldStable === "USDT" ? "USDC" : "USDT";
                 saveScoutHeldStable(scoutHeldStable);
@@ -1847,8 +1864,10 @@ async function main(): Promise<void> {
                   continue;
                 }
                 book.walletCashUsd -= e.result.economics.positionSizeUsd;
-                weekLedger = recordLeg(weekLedger, "entry", filledAt);
-                if (e.result.pressTrade) weekLedger = consumePressTrade(weekLedger);
+                if (isInCompetitionWindow(filledAt, weekStartIso, weekEndIso)) {
+                  weekLedger = recordLeg(weekLedger, "entry", filledAt);
+                  if (e.result.pressTrade) weekLedger = consumePressTrade(weekLedger);
+                }
                 // Open a tracked position so the fast watch loop trails it immediately.
                 const trail = initTrailingStop({
                   entryPrice: e.price,

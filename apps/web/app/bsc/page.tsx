@@ -3,20 +3,28 @@ import { BscShell } from "@/components/bscShell";
 import { Card, Stat, SectionTitle, Badge, Dot, EmptyState } from "@/components/ui";
 import { SignalFamilyChip, ExecutionStatusChip } from "@/components/chips";
 import { RejectionBars } from "@/components/charts";
-import { loadBscMandates, computeBscProof, readBscEnv, readRegime, readWeekBudget } from "@/lib/data";
+import { competitionCountdown, loadBscMandates, computeBscProof, readBscEnv, readRegime, readWeekBudget } from "@/lib/data";
 import { num, timeAgo, shortTime } from "@/lib/format";
-import { DEFAULT_RISK_CONFIG } from "@wardenclaw/core";
+import { COMPETITION, DEFAULT_RISK_CONFIG, isInCompetitionWindow } from "@wardenclaw/core";
 import { STARTER_STABLES, STARTER_MAJORS } from "@wardenclaw/bsc-adapter";
 
 export const dynamic = "force-dynamic";
 
 export default function BscOverview() {
   const mandates = loadBscMandates();
-  const proof = computeBscProof(mandates);
+  const competitionMandates = mandates.filter((m) => isInCompetitionWindow(m.createdAt));
+  const proof = computeBscProof(competitionMandates);
+  const preflightExecutions = mandates.filter(
+    (m) =>
+      m.risk.approved &&
+      Boolean(m.proofAnchors.bscTxHash) &&
+      Date.parse(m.createdAt) < Date.parse(COMPETITION.tradingWindow.startUtc),
+  ).length;
   const env = readBscEnv();
   const cfg = DEFAULT_RISK_CONFIG;
   const regime = readRegime();
   const week = readWeekBudget();
+  const countdown = competitionCountdown();
   const recent = mandates.slice(0, 8);
 
   return (
@@ -31,17 +39,17 @@ export default function BscOverview() {
           <Badge tone={regime?.regime === "RED" ? "neg" : regime?.regime === "GREEN" ? "pos" : "neutral"}>
             {regime?.regime ?? "regime pending"}
           </Badge>
-          <Badge tone={week?.riskState === "DEFEND" ? "warn" : week?.riskState === "PRESS" ? "pos" : "accent"}>
-            {week?.riskState ?? "week state pending"}
+          <Badge tone={countdown.phase === "preflight" ? "neutral" : week?.riskState === "DEFEND" ? "warn" : week?.riskState === "PRESS" ? "pos" : "accent"}>
+            {countdown.phase === "preflight" ? "competition not started" : week?.riskState ?? "week state pending"}
           </Badge>
         </div>
       }
     >
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <Stat label="Signal Mandates" value={num(proof.total)} sub={`updated ${timeAgo(proof.lastUpdated)}`} />
-        <Stat label="Approved" value={num(proof.approved)} valueClass="text-pos" sub="passed every gate" />
-        <Stat label="Gated skips" value={num(proof.rejected)} valueClass="text-neg" sub="net-edge / stop / shadow / eligibility" />
-        <Stat label="Window budget" value={`${cfg.internalWindowDrawdownPct}%`} sub={`DQ cap ${cfg.competitionDqDrawdownPct}%`} />
+        <Stat label="Competition mandates" value={num(proof.total)} sub={`updated ${timeAgo(proof.lastUpdated)}`} />
+        <Stat label="Competition approvals" value={num(proof.approved)} valueClass="text-pos" sub="June 22–28 only" />
+        <Stat label="Preflight executions" value={num(preflightExecutions)} valueClass="text-accent" sub="evidence only · not scored" />
+        <Stat label="Internal risk budget" value={`${cfg.internalWindowDrawdownPct}%`} sub="organizer DQ threshold pending" />
       </div>
 
       <div className="mt-3 grid gap-3 lg:grid-cols-3">
@@ -73,7 +81,7 @@ export default function BscOverview() {
         </Card>
 
         <Card>
-          <SectionTitle title="Why trades were skipped" subtitle="Deterministic reject codes" />
+          <SectionTitle title="Why competition trades were skipped" subtitle="Deterministic reject codes · June 22–28 only" />
           {proof.byRejectCode.length === 0 ? (
             <p className="py-8 text-center text-xs text-ink-faint">No rejections recorded yet.</p>
           ) : (
@@ -85,6 +93,7 @@ export default function BscOverview() {
       <div className="mt-3">
         <SectionTitle
           title="Recent Signal Mandates"
+          subtitle="Operational audit trail; preflight activity is not competition scoring"
           right={<Link href="/bsc/mandates" className="text-xs text-accent hover:underline">View all →</Link>}
         />
         {recent.length === 0 ? (

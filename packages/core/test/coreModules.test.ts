@@ -147,6 +147,23 @@ describe("competition rules", () => {
   });
 });
 
+describe("competition-window metrics", () => {
+  it("excludes preflight snapshots, deduplicates hours, and uses starting capital", async () => {
+    const { competitionSnapshots, returnFromStartingCapital } = await import("../src/index.js");
+    const snapshots = competitionSnapshots([
+      { hourIso: "2026-06-15T23:00:00Z", valueUsd: 44.95 },
+      { hourIso: "2026-06-22T00:00:00Z", valueUsd: 40 },
+      { hourIso: "2026-06-22T00:00:00Z", valueUsd: 39.99 },
+      { hourIso: "2026-06-22T01:00:00Z", valueUsd: 40.5 },
+    ]);
+    expect(snapshots).toEqual([
+      { hourIso: "2026-06-22T00:00:00Z", valueUsd: 39.99 },
+      { hourIso: "2026-06-22T01:00:00Z", valueUsd: 40.5 },
+    ]);
+    expect(returnFromStartingCapital(39.99, 40)).toBeCloseTo(-0.025, 5);
+  });
+});
+
 describe("calibration report builder", () => {
   it("aggregates real samples into score bands", () => {
     const samples = [

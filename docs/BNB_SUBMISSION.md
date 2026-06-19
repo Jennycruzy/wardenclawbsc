@@ -109,9 +109,10 @@ pnpm --filter @wardenclaw/web dev     # dashboards: /bsc, /bsc/proof, /bsc/ops
 Live: configure TWAK + RPC + alerts, pass the rehearsal, then run under pm2
 (`pm2 start ops/pm2.config.cjs`). See `docs/OPERATIONS.md` and `docs/PREFLIGHT.md`.
 
-## The four open items (§0.1b)
+## Pending organizer clarifications
 
-Exact DQ %, the simulated-cost model, whether WBNB/BNB count in-scope, and the
-149-vs-enumerated count are the only unverified values. Conservative defaults are
-authoritative and nothing waits on them; they appear as warnings on `/bsc/rules`.
-If organizer answers arrive, a config value is the only change needed.
+The exact DQ threshold, simulated-cost model, WBNB/native-BNB treatment, and the
+eligible-token count discrepancy remain unresolved in the available organizer
+material. `/bsc/rules` shows the internal safety assumptions currently used.
+They are not presented as confirmed competition rules and must be reviewed when
+the organizer publishes exact answers.

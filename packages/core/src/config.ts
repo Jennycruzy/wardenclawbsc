@@ -73,7 +73,7 @@ export interface RiskConfig {
   // Micro-capital economics + calibration
   netEdgeMinBps: number;
   frictionBudgetBps: number;
-  scoringSimCostBps: number; // per trade leg — conservative default until confirmed
+  scoringSimCostBps: number; // per trade leg — internal safety assumption until confirmed
   twakFeeBps: number; // TWAK swap fee per leg — 7.7 (0.077%) waived rate during the trading week
   walletFloorFraction: number; // expected move must exceed this × measured real round-trip
   dustRoundTripCeilingBps: number; // measured real round-trip above this = dust (notional too small vs fixed cost)
@@ -93,7 +93,7 @@ export interface RiskConfig {
   approvalBufferBps: number;
 }
 
-/** Authoritative defaults. Conservative open-item values are baked in. */
+/** Runtime defaults. Values tied to unresolved organizer details are safety assumptions. */
 export const DEFAULT_RISK_CONFIG: RiskConfig = {
   startingCapitalUsd: 40,
   gasReserveUsd: 2,
@@ -142,7 +142,7 @@ export const DEFAULT_RISK_CONFIG: RiskConfig = {
   regimeHysteresisChecks: 2,
   regimeHighVolatilityRatio: 1.5,
 
-  competitionDqDrawdownPct: 30,
+  competitionDqDrawdownPct: 30, // internal safety assumption; organizer threshold still pending
   internalWindowDrawdownPct: 15,
   maxDailyDrawdownPct: 6,
   softDrawdownPct: 4,
@@ -152,7 +152,7 @@ export const DEFAULT_RISK_CONFIG: RiskConfig = {
 
   netEdgeMinBps: 30,
   frictionBudgetBps: 120,
-  scoringSimCostBps: 10,
+  scoringSimCostBps: 10, // internal scoring assumption; organizer model still pending
   twakFeeBps: 7.7,
   walletFloorFraction: 0.75,
   dustRoundTripCeilingBps: 350,

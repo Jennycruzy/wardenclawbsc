@@ -5,32 +5,50 @@ import { SignalFamilyChip } from "@/components/chips";
 import { EquityCurve } from "@/components/charts";
 import {
   loadBscMandates,
-  computeBscProof,
   loadHourlySnapshots,
   readBscEnv,
   readWalletCost,
   readWeekBudget,
   readRegime,
+  competitionCountdown,
 } from "@/lib/data";
-import { DEFAULT_RISK_CONFIG } from "@wardenclaw/core";
-import { totalReturnPct, maxDrawdownPct, type HourlySnapshot } from "@wardenclaw/core";
+import {
+  COMPETITION,
+  DEFAULT_RISK_CONFIG,
+  competitionSnapshots,
+  isInCompetitionWindow,
+  maxDrawdownPct,
+  returnFromStartingCapital,
+  type HourlySnapshot,
+} from "@wardenclaw/core";
 import { usd, pct, num, shortTime, signClass } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
 export default function BscProof() {
   const mandates = loadBscMandates();
-  const proof = computeBscProof(mandates);
   const env = readBscEnv();
-  const snaps = loadHourlySnapshots();
+  const allSnaps = loadHourlySnapshots();
   const cfg = DEFAULT_RISK_CONFIG;
+  const countdown = competitionCountdown();
 
-  const snapForCore: HourlySnapshot[] = snaps.map((s) => ({ hourIso: s.hourIso, valueUsd: s.valueUsd }));
-  const totalReturn = snaps.length >= 2 ? totalReturnPct(snapForCore) : null;
-  const maxDd = snaps.length >= 2 ? maxDrawdownPct(snapForCore) : null;
-  const liveValue = snaps.length ? snaps[snaps.length - 1]!.valueUsd : null;
-  const tradeRows = mandates.filter((m) => m.risk.approved);
-  const weeklyTrades = tradeRows.length;
+  const snapForCore: HourlySnapshot[] = allSnaps.map((s) => ({ hourIso: s.hourIso, valueUsd: s.valueUsd }));
+  const scoringSnaps = competitionSnapshots(snapForCore);
+  const scoringSeries: HourlySnapshot[] = [
+    { hourIso: COMPETITION.tradingWindow.startUtc, valueUsd: env.startingCapitalUsd },
+    ...scoringSnaps,
+  ];
+  const latestScoringValue = scoringSnaps.at(-1)?.valueUsd ?? null;
+  const totalReturn =
+    latestScoringValue !== null ? returnFromStartingCapital(latestScoringValue, env.startingCapitalUsd) : null;
+  const maxDd = scoringSnaps.length > 0 ? maxDrawdownPct(scoringSeries) : null;
+  const liveValue = allSnaps.at(-1)?.valueUsd ?? null;
+  const competitionMandates = mandates.filter((m) => isInCompetitionWindow(m.createdAt));
+  const tradeRows = competitionMandates.filter((m) => m.risk.approved);
+  const weeklyTrades = tradeRows.filter((m) => Boolean(m.proofAnchors.bscTxHash)).length;
+  const preflightExecutions = mandates.filter(
+    (m) => m.risk.approved && Boolean(m.proofAnchors.bscTxHash) && Date.parse(m.createdAt) < Date.parse(COMPETITION.tradingWindow.startUtc),
+  );
   const walletCost = readWalletCost();
   const week = readWeekBudget();
   const regime = readRegime();
@@ -49,24 +67,35 @@ export default function BscProof() {
         <Stat
           label="Portfolio value"
           value={liveValue !== null ? usd(liveValue) : "—"}
-          sub={liveValue !== null ? `from $${env.startingCapitalUsd} start` : "no snapshots yet"}
+          sub={
+            liveValue === null
+              ? "no snapshots yet"
+              : countdown.phase === "preflight"
+                ? "preflight wallet value · scoring not started"
+                : `competition baseline ${usd(env.startingCapitalUsd)}`
+          }
         />
         <Stat
           label="Total return"
           value={totalReturn !== null ? pct(totalReturn) : "—"}
           valueClass={signClass(totalReturn ?? undefined)}
+          sub={totalReturn === null ? "competition scoring starts June 22" : "from official starting balance"}
         />
         <Stat
           label="Max drawdown"
           value={maxDd !== null ? pct(-maxDd) : "—"}
-          valueClass="text-neg"
-          sub={`DQ cap ${cfg.competitionDqDrawdownPct}% · budget ${cfg.internalWindowDrawdownPct}%`}
+          valueClass={maxDd === null ? "text-ink-muted" : "text-neg"}
+          sub={
+            maxDd === null
+              ? "no competition-window drawdown yet"
+              : `internal limit ${cfg.internalWindowDrawdownPct}% · organizer threshold pending confirmation`
+          }
         />
         <Stat
           label="Weekly trades"
-          value={`${week?.legsUsed ?? weeklyTrades}/7`}
-          valueClass={(week?.legsUsed ?? weeklyTrades) >= 7 ? "text-pos" : "text-ink"}
-          sub="executed entry + exit legs"
+          value={`${weeklyTrades}/7`}
+          valueClass={weeklyTrades >= 7 ? "text-pos" : "text-ink"}
+          sub="confirmed on-chain competition legs"
         />
       </div>
 
@@ -74,9 +103,9 @@ export default function BscProof() {
         <Badge tone={regime?.regime === "RED" ? "neg" : regime?.regime === "GREEN" ? "pos" : "neutral"}>
           Regime {regime?.regime ?? "awaiting first cycle"}
         </Badge>
-        <Badge tone={week?.riskState === "DEFEND" ? "warn" : week?.riskState === "PRESS" ? "pos" : "accent"}>
-          Week state {week?.riskState ?? "awaiting first cycle"}
-          {week?.pressTrade ? " · one PRESS shot active" : ""}
+        <Badge tone={countdown.phase === "preflight" ? "neutral" : week?.riskState === "DEFEND" ? "warn" : week?.riskState === "PRESS" ? "pos" : "accent"}>
+          Week state {countdown.phase === "preflight" ? "not started" : week?.riskState ?? "awaiting first cycle"}
+          {countdown.phase !== "preflight" && week?.pressTrade ? " · one PRESS shot active" : ""}
         </Badge>
         {regime?.regime === "RED" ? <span className="text-xs text-neg">Capital parked in eligible stables by design.</span> : null}
       </div>
@@ -84,11 +113,11 @@ export default function BscProof() {
       <div className="mt-3 grid gap-3 lg:grid-cols-3">
         <Card className="lg:col-span-2">
           <SectionTitle title="Hourly portfolio value" subtitle="Mirrors the organizers' hourly scoring" />
-          {snaps.length >= 2 ? (
-            <EquityCurve data={snaps.map((s) => ({ time: s.hourIso, equityUsd: s.valueUsd }))} />
+          {scoringSnaps.length > 0 ? (
+            <EquityCurve data={scoringSeries.map((s) => ({ time: s.hourIso, equityUsd: s.valueUsd }))} />
           ) : (
             <p className="py-10 text-center text-xs text-ink-faint">
-              No hourly snapshots yet. The snapshot job records portfolio value each hour during the live window.
+              No competition-window snapshots yet. Preflight values are intentionally excluded from scoring.
             </p>
           )}
         </Card>
@@ -127,7 +156,7 @@ export default function BscProof() {
       </div>
 
       <div className="mt-3">
-        <SectionTitle title="Trade ledger" subtitle="Two ledgers per trade — scored (competition simulated cost) drives the gate; wallet (measured real round-trip) protects real capital" />
+        <SectionTitle title="Competition trade ledger" subtitle="Only June 22–28 mandates appear here; preflight executions are separated below" />
         {walletCost ? (
           <div className="mb-3 flex flex-wrap items-center gap-2 text-xs text-ink-muted">
             <Badge tone={walletCost.measured ? "pos" : "neutral"}>
@@ -139,7 +168,7 @@ export default function BscProof() {
         {tradeRows.length === 0 ? (
           <EmptyState
             title="No live trades yet"
-            hint="Approved mandates appear here with their CMC trigger, net-edge numbers, BSC tx hash, TWAK and x402 receipts. Run the agent to populate."
+            hint="Competition-window mandates with confirmed evidence appear here after trading opens."
             command="pnpm run:bsc-agent"
           />
         ) : (
@@ -191,6 +220,35 @@ export default function BscProof() {
                 ))}
               </tbody>
             </table>
+          </Card>
+        )}
+      </div>
+
+      <div className="mt-3">
+        <SectionTitle
+          title="Preflight execution evidence"
+          subtitle="Rehearsal transactions prove the execution path but do not count toward competition return or the 7-leg minimum"
+        />
+        {preflightExecutions.length === 0 ? (
+          <p className="text-xs text-ink-faint">No confirmed preflight execution recorded.</p>
+        ) : (
+          <Card className="space-y-2">
+            {preflightExecutions.map((m) => (
+              <div key={m.id} className="flex flex-wrap items-center justify-between gap-3 border-b border-line/50 pb-2 last:border-0 last:pb-0">
+                <div>
+                  <span className="text-sm text-ink">{m.asset} · {m.decision.signalFamily}</span>
+                  <span className="ml-2 text-xs text-ink-faint">{shortTime(m.createdAt)}</span>
+                </div>
+                <a
+                  href={`https://bsctrace.com/tx/${m.proofAnchors.bscTxHash}`}
+                  className="font-mono text-xs text-accent hover:underline"
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  {m.proofAnchors.bscTxHash?.slice(0, 12)}…
+                </a>
+              </div>
+            ))}
           </Card>
         )}
       </div>

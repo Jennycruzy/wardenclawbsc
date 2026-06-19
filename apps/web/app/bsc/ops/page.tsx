@@ -166,7 +166,11 @@ export default function BscOps() {
 
         <Card>
           <SectionTitle title="Week-schedule risk budget" subtitle="HUNT / PRESS / DEFEND — sizes risk across the competition week, not just per trade" />
-          {week ? (
+          {countdown.phase === "preflight" ? (
+            <p className="py-3 text-xs text-ink-faint">
+              Competition week state has not started. Rehearsal legs are excluded from the June 22–28 ledger.
+            </p>
+          ) : week ? (
             <div className="space-y-1">
               <div className="flex items-center justify-between border-b border-line/50 py-2.5">
                 <div className="flex items-center gap-2.5">

@@ -91,8 +91,8 @@ Switch to `/bsc/ops`.
 Briefly show `/bsc/rules`.
 
 > Competition assumptions are explicit. Verified rules are separated from open
-> organizer questions, which use conservative defaults instead of hidden
-> guesses.
+> organizer questions, which use clearly labeled internal safety assumptions
+> instead of hidden guesses.
 
 ### 2:55–3:25 — Track 2 transition
 
@@ -154,4 +154,3 @@ pnpm --filter @wardenclaw/web dev
 
 Use `http://localhost:3000/bsc` and the same page sequence. Record a clean backup
 take before submission even if the public deployment is healthy.
-

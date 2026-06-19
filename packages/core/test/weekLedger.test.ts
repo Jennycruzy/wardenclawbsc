@@ -8,6 +8,7 @@ import {
   parseWeekLedger,
   recordLeg,
   recordWeekValue,
+  sanitizeWeekLedgerForWindow,
   serializeWeekLedger,
 } from "../src/index.js";
 
@@ -44,6 +45,21 @@ describe("weekLedger", () => {
   it("persists PRESS consumption across restarts", () => {
     const l = consumePressTrade(initWeekLedger("2026-06-22T00:00:00Z", 40));
     expect(parseWeekLedger(serializeWeekLedger(l)).pressTradeUsed).toBe(true);
+  });
+
+  it("removes preflight legs from the competition ledger", () => {
+    let l = initWeekLedger("2026-06-22T00:00:00Z", 40);
+    l = recordLeg(l, "scout", "2026-06-18T20:00:00Z");
+    l = recordLeg(l, "entry", "2026-06-22T12:00:00Z");
+    l = consumePressTrade(recordWeekValue(l, 44));
+    const clean = sanitizeWeekLedgerForWindow(
+      l,
+      "2026-06-22T00:00:00Z",
+      "2026-06-28T23:59:59Z",
+    );
+    expect(clean.legs).toEqual([{ atIso: "2026-06-22T12:00:00Z", kind: "entry" }]);
+    expect(clean.peakValueUsd).toBe(40);
+    expect(clean.pressTradeUsed).toBe(false);
   });
 
   it("throws loudly on corruption", () => {

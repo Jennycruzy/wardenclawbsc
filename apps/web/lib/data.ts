@@ -37,6 +37,7 @@ function listFiles(dir: string, suffix: string): string[] {
   if (!existsSync(dir)) return [];
   return readdirSync(dir)
     .filter((f) => f.endsWith(suffix))
+    .sort()
     .map((f) => join(dir, f));
 }
 
@@ -124,10 +125,13 @@ export interface HourlySnapshotRow {
 
 export function loadHourlySnapshots(): HourlySnapshotRow[] {
   const files = listFiles(AUDIT_DIR, ".snapshots.jsonl");
-  const rows: HourlySnapshotRow[] = [];
+  const byHour = new Map<string, HourlySnapshotRow>();
   for (const f of files) {
-    rows.push(...readJsonl(f, (o) => o as HourlySnapshotRow));
+    for (const row of readJsonl(f, (o) => o as HourlySnapshotRow)) {
+      byHour.set(row.hourIso, row);
+    }
   }
+  const rows = [...byHour.values()];
   rows.sort((a, b) => (a.hourIso < b.hourIso ? -1 : 1));
   return rows;
 }

@@ -1,10 +1,11 @@
 # Competition Rules
 
 Transcribed from the official DoraHacks page for *BNB Hack: AI Trading Agent
-Edition — CoinMarketCap × Trust Wallet*. Verified rules are authoritative. The
-four open items carry conservative defaults that are authoritative until an
-organizer confirms otherwise; updating one config value is the only change needed
-if answers arrive. Run `pnpm verify:competition-rules` to check this registry.
+Edition — CoinMarketCap × Trust Wallet*. Confirmed requirements are separated
+from unresolved organizer details. Values used for unresolved items are internal
+safety assumptions, not official competition rules. Review and update them when
+the organizer publishes exact answers. Run `pnpm verify:competition-rules` to
+check this registry.
 
 ---
 
@@ -72,7 +73,7 @@ exact_value: charged inside the friction model
 implementation_file: packages/core/src/frictionModel.ts
 ```
 
-## Open items (dashboard warnings until confirmed)
+## Pending organizer clarification
 
 ```
 rule: Exact disqualification drawdown percentage and measurement basis
@@ -86,7 +87,7 @@ implementation_file: packages/core/src/config.ts
 rule: Exact simulated-transaction-cost amount/model used in scoring
 source: DoraHacks official page (transcribed 2026-06-09)
 status: needs-organizer-confirmation
-exact_value: SCORING_SIM_COST_BPS=10 per leg (conservative default)
+exact_value: SCORING_SIM_COST_BPS=10 per leg (internal safety assumption)
 implementation_file: packages/core/src/frictionModel.ts
 ```
 

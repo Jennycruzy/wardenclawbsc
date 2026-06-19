@@ -1,8 +1,7 @@
 /**
- * Machine-readable competition rules. The verified rules are authoritative; the
- * four open items carry conservative defaults that are authoritative until an
- * organizer confirms otherwise. The verify step passes when every verified rule
- * has an implementation reference and hard-warns on the open items before live.
+ * Machine-readable competition rules. Confirmed requirements are separated from
+ * unresolved organizer details. Open-item values are internal safety assumptions,
+ * not official rules. The verify step warns on them before live scoring.
  */
 
 export type RuleStatus = "verified" | "needs-exact-value" | "needs-organizer-confirmation";
@@ -16,6 +15,7 @@ export interface CompetitionRule {
 }
 
 const SOURCE = "DoraHacks official page (transcribed 2026-06-09)";
+const OPEN_SOURCE = "Internal safety assumption; exact organizer value not confirmed";
 
 export const COMPETITION_RULES: CompetitionRule[] = [
   {
@@ -71,28 +71,28 @@ export const COMPETITION_RULES: CompetitionRule[] = [
   },
   {
     rule: "Exact disqualification drawdown percentage and measurement basis",
-    source: SOURCE,
+    source: OPEN_SOURCE,
     status: "needs-organizer-confirmation",
     exactValue: "30% indicative (page example); presumed whole-window peak-to-trough",
     implementationFile: "packages/core/src/config.ts",
   },
   {
     rule: "Exact simulated-transaction-cost amount/model used in scoring",
-    source: SOURCE,
+    source: OPEN_SOURCE,
     status: "needs-organizer-confirmation",
-    exactValue: "SCORING_SIM_COST_BPS=10 per leg (conservative default)",
+    exactValue: "SCORING_SIM_COST_BPS=10 per leg (internal safety assumption)",
     implementationFile: "packages/core/src/frictionModel.ts",
   },
   {
     rule: "Whether WBNB hops / native BNB count as in-scope",
-    source: SOURCE,
+    source: OPEN_SOURCE,
     status: "needs-organizer-confirmation",
     exactValue: "Presume not held as a position; WBNB allowed only as a route hop",
     implementationFile: "packages/core/src/eligibleTokens.ts",
   },
   {
     rule: "The 149-vs-enumerated eligible-token count discrepancy",
-    source: SOURCE,
+    source: OPEN_SOURCE,
     status: "needs-organizer-confirmation",
     exactValue: "Enumerated list treated as working truth",
     implementationFile: "data/eligible-tokens.json",

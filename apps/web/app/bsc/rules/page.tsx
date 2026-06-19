@@ -12,7 +12,7 @@ export default function BscRules() {
   return (
     <BscShell
       title="Competition Rules"
-      subtitle="Verified from the official DoraHacks page. Four open items carry authoritative conservative defaults."
+      subtitle="Confirmed requirements are separated from unresolved organizer details."
       actions={
         <Badge tone={v.ok ? "pos" : "neg"}>
           <Dot tone={v.ok ? "pos" : "neg"} /> {v.ok ? "verify passes" : "verify failing"}
@@ -20,7 +20,10 @@ export default function BscRules() {
       }
     >
       <Card className="mb-3 border-warn/30 bg-warn/5">
-        <SectionTitle title="Open items — conservative defaults are authoritative" subtitle="Nothing waits on these; a config update is the only change if answers arrive" />
+        <SectionTitle
+          title="Pending organizer clarification"
+          subtitle="These are internal safety assumptions, not confirmed competition rules; review them before live scoring"
+        />
         <div className="space-y-3">
           {open.map((r) => (
             <div key={r.rule} className="flex flex-col gap-1 border-b border-line/50 pb-3 last:border-0 last:pb-0">
@@ -28,8 +31,11 @@ export default function BscRules() {
                 <span className="text-sm text-ink">{r.rule}</span>
                 <Badge tone="warn">needs confirmation</Badge>
               </div>
-              {r.exactValue ? <span className="text-xs text-ink-muted">Default in use: {r.exactValue}</span> : null}
-              <code className="font-mono text-[11px] text-ink-faint">{r.implementationFile}</code>
+              {r.exactValue ? <span className="text-xs text-ink-muted">Internal setting in use: {r.exactValue}</span> : null}
+              <details className="text-[11px] text-ink-faint">
+                <summary className="cursor-pointer">Implementation reference</summary>
+                <code className="font-mono">{r.implementationFile}</code>
+              </details>
             </div>
           ))}
         </div>
@@ -43,7 +49,10 @@ export default function BscRules() {
               <div>
                 <span className="text-sm text-ink">{r.rule}</span>
                 {r.exactValue ? <span className="ml-2 text-xs text-ink-muted">({r.exactValue})</span> : null}
-                <code className="mt-0.5 block font-mono text-[11px] text-ink-faint">{r.implementationFile}</code>
+                <details className="mt-0.5 text-[11px] text-ink-faint">
+                  <summary className="cursor-pointer">Implementation reference</summary>
+                  <code className="font-mono">{r.implementationFile}</code>
+                </details>
               </div>
               <Badge tone="pos"><Dot tone="pos" /> verified</Badge>
             </div>
