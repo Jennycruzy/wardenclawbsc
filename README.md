@@ -106,7 +106,8 @@ last-resort stable compliance scout remain available.
 Each position has a persisted high-water mark and software-enforced stop:
 
 1. Start with a volatility stop below entry.
-2. At a one-ATR gain, ratchet to entry plus measured real round-trip cost.
+2. At the configured breakeven trigger (`BREAKEVEN_TRIGGER_ATR` ATR of gain,
+   default 1.5), ratchet to entry plus measured real round-trip cost.
 3. Trail below the high-water mark.
 4. Never lower or widen the stop.
 5. Use the tighter trail in RED or DEFEND.
@@ -116,7 +117,7 @@ independently of the slower entry-decision cadence.
 
 A software stop is not an exchange-native order: it only protects if the exit
 actually fills. Forced safety exits therefore use a wider slippage ceiling
-(`EXIT_MAX_SLIPPAGE_BPS` / `TWAK_MAX_EXIT_SLIPPAGE_BPS`, default 150 bps) than
+(`EXIT_MAX_SLIPPAGE_BPS` / `TWAK_MAX_EXIT_SLIPPAGE_BPS`, default 250 bps) than
 entries (`MAX_SLIPPAGE_BPS`, default 50 bps), so a protective exit on a thin or
 fast-dropping token fills rather than being refused while the position bleeds. The
 TWAK signing policy permits the wider tolerance only for `exit` intents; entries

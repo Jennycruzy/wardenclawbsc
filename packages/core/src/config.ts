@@ -104,7 +104,7 @@ export const DEFAULT_RISK_CONFIG: RiskConfig = {
   maxConcurrentPositions: 1,
   perTradeRiskPct: 3,
   stopAtrMultiple: 1.5,
-  breakevenTriggerAtr: 1.0,
+  breakevenTriggerAtr: 1.5, // win-first: let a runner breathe before the stop snaps to breakeven (fewer churn-at-breakeven exits on a ~1.37% round-trip)
   trailAtrMultiple: 1.5,
   trailTightAtrMultiple: 1.0,
   maxPositionPct: 70,
@@ -162,7 +162,7 @@ export const DEFAULT_RISK_CONFIG: RiskConfig = {
   dustRoundTripCeilingBps: 350,
   maxSlippageBps: 50,
   swapSlippageBufferBps: 25,
-  exitMaxSlippageBps: 150, // wider ceiling for forced safety exits only (get out beats non-fill)
+  exitMaxSlippageBps: 250, // wider ceiling for forced safety exits only (get out beats non-fill); covers the thinnest eligible tokens
   shadowFillToleranceBps: 40,
   kellyFraction: 0.25,
   calibrationMaxAgeDays: 7,
@@ -306,6 +306,8 @@ export function loadRiskConfig(env: Record<string, string | undefined> = {}): Ri
   requireRange("swapSlippageBufferBps", 0, loaded.maxSlippageBps);
   // Exit ceiling must be at least as wide as the entry cap (exits never tighter) and bounded.
   requireRange("exitMaxSlippageBps", loaded.maxSlippageBps, 500);
+  // Breakeven trigger must be a sane positive ATR multiple (0 would arm the ratchet instantly).
+  requireRange("breakevenTriggerAtr", 0.1, 10);
   requireRange("walletFloorFraction", 0, 2);
   requireRange("survivalLossStreak", 1, 20);
 
