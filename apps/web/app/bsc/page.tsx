@@ -52,6 +52,58 @@ export default function BscOverview() {
         <Stat label="Internal risk budget" value={`${cfg.internalWindowDrawdownPct}%`} sub="organizer DQ threshold pending" />
       </div>
 
+      <Card className="mt-3">
+        <SectionTitle title="Two tracks, one doctrine" subtitle="The same deterministic strategy, submitted twice" />
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div className="rounded-lg border border-line/60 p-3">
+            <Badge tone="pos"><Dot tone="pos" /> Track 1 — live agent</Badge>
+            <p className="mt-2 text-xs leading-relaxed text-ink-muted">
+              This self-custodial BSC agent: CMC perception, deterministic gates, TWAK-only signing, on-chain proof.
+            </p>
+          </div>
+          <div className="rounded-lg border border-line/60 p-3">
+            <Badge tone="accent"><Dot tone="accent" /> Track 2 — CMC Skill</Badge>
+            <p className="mt-2 text-xs leading-relaxed text-ink-muted">
+              The same doctrine as a standalone, spec-only CoinMarketCap Skill
+              (<span className="font-mono">wardenclaw-doctrine</span>) — emits JSON signals, never orders.
+            </p>
+          </div>
+        </div>
+      </Card>
+
+      <Card className="mt-3">
+        <SectionTitle title="Strategy — three uncrowded edges" subtitle="Every candidate then clears the same deterministic gate chain" />
+        <div className="grid gap-3 sm:grid-cols-3">
+          <div className="rounded-lg border border-line/60 p-3">
+            <Badge tone="accent" className="font-mono">catalyst</Badge>
+            <p className="mt-2 text-xs leading-relaxed text-ink-muted">
+              Improving trending <span className="text-ink">rank-delta</span> (not level) + fresh volume
+              expansion + a no-first-spike continuation.
+            </p>
+          </div>
+          <div className="rounded-lg border border-line/60 p-3">
+            <Badge tone="accent" className="font-mono">rs_continuation</Badge>
+            <p className="mt-2 text-xs leading-relaxed text-ink-muted">
+              Outperforms the benchmark over consecutive checks with rising volume — caught
+              <span className="text-ink"> before it is crowded</span>.
+            </p>
+          </div>
+          <div className="rounded-lg border border-line/60 p-3">
+            <Badge tone="accent" className="font-mono">momentum</Badge>
+            <p className="mt-2 text-xs leading-relaxed text-ink-muted">
+              Regime-gated rotation into the strongest liquid major vs stables —
+              <span className="text-ink"> GREEN/NEUTRAL only</span>.
+            </p>
+          </div>
+        </div>
+        <p className="mt-4 text-xs leading-relaxed text-ink-muted">
+          <span className="text-ink-faint">Gate chain:</span> exact-contract eligibility · liquidity and route
+          safety · calibrated expected move · simulated scoring cost · measured wallet friction · volatility stop ·
+          three-layer drawdown governor · shadow-fill. If the measured edge does not beat all of that plus a margin,
+          the agent does not trade.
+        </p>
+      </Card>
+
       <div className="mt-3 grid gap-3 lg:grid-cols-3">
         <Card className="lg:col-span-2">
           <SectionTitle title="Tradeable universe" subtitle="Liquidity-passing subset of the eligible list (by contract address)" />
