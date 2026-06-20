@@ -3,7 +3,7 @@
     "name": "wardenclaw-doctrine",
     "purpose": "PUBLIC reference parameters for the WARDENCLAW doctrine strategy spec.",
     "status": "reference defaults — production deployments should calibrate on recent data (a calibration procedure is included in strategy-spec.md §11 and backtest/METHODOLOGY.md).",
-    "edge_protection_note": "These are honest, backtestable defaults. They are NOT the live agent's calibrated values. The live trending-delta thresholds, tuned score bands, calibrated score->expected-move mapping, deployed ATR multiples, press/defend triggers and NET_EDGE_MIN_BPS as actually deployed live in a private runtime config and are intentionally never published here. Anything below that matches the live deployment is only the already-public conservative default in the repo's packages/core/src/config.ts; the tuned values are private.",
+    "edge_protection_note": "These are honest, backtestable reference defaults, NOT the live agent's calibrated values. The live trending-delta thresholds, tuned score bands, calibrated score->expected-move mapping, deployed ATR multiples, press/defend triggers, and net-edge margins live in a private runtime config and are intentionally never published here. Any value here that happens to match the live deployment is only the already-public conservative default from the repo's packages/core/src/config.ts; the calibrated values stay private.",
     "units": "bps = basis points (1bp = 0.01%). pct = percent. atr = multiples of recent ATR (ATR expressed as a fraction of price). usd = US dollars.",
     "calibration_required": true
   },

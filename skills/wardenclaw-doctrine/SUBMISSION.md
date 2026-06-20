@@ -51,8 +51,10 @@ artifact.
   signals. A **real** 30-day run across twelve liquid assets versus BNB is committed in
   `backtest/results/`; reproduce with `CMC_API_KEY=… SKILL_BACKTEST_REAL=1 pnpm skill:backtest`.
   Catalyst is explicitly non-evaluable without historical CMC trending ranks; RS produced no
-  closed trades; momentum results are modest and negative under un-tuned defaults. Nothing is
-  inflated or backfilled.
+  closed trades; momentum is modest/negative under the **deliberately un-calibrated reference
+  prior** — exactly what an honest default should show *before* the §11 calibration step that
+  produces the edge. The calibrated instance of this same doctrine is the live Track 1 agent
+  with the on-chain proof above. Nothing is inflated or backfilled.
 
 ## Honest stance on parameters
 
