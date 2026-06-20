@@ -43,8 +43,9 @@ The proof page shows a deterministic analyst, not a generic bot:
 - RED breadth parks capital in eligible stables.
 - HUNT scans from hour one at the normal threshold.
 - A flat day 6 unlocks exactly one pre-committed PRESS entry, then reverts.
-- A lead above +8% switches to DEFEND, raises entry/net-edge requirements, and
-  tightens the trailing stop.
+- A lead above the `DEFEND_TRIGGER_PCT` threshold (default +25%, win-first)
+  switches to DEFEND, raises entry/net-edge requirements, and tightens the
+  trailing stop.
 - Scored and Wallet Ledgers remain side by side so judges see both tournament
   economics and real-capital protection.
 

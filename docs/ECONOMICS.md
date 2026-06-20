@@ -48,8 +48,8 @@ DEFEND use `TRAIL_TIGHT_ATR_MULTIPLE`.
 - Days 1-5: **HUNT**, score 80+.
 - Day 6+: if scored return is between -2% and +3%, exactly one **PRESS** entry
   may use score 65+. It still passes every gate and is persisted as consumed.
-- Above +8% scored return: **DEFEND**, score 90+, extra
-  `NET_EDGE_DEFEND_BONUS_BPS`, and the tight trail.
+- Above the `DEFEND_TRIGGER_PCT` scored return (default +25%, win-first):
+  **DEFEND**, score 90+, extra `NET_EDGE_DEFEND_BONUS_BPS`, and the tight trail.
 
 The internal 15% window drawdown budget remains inside the competition DQ cap.
 PRESS does not enlarge position size or bypass the governor.
