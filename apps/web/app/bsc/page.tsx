@@ -48,7 +48,9 @@ export default function BscOverview() {
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <Stat label="Competition mandates" value={num(proof.total)} sub={`updated ${timeAgo(proof.lastUpdated)}`} />
         <Stat label="Competition approvals" value={num(proof.approved)} valueClass="text-pos" sub="June 22–28 only" />
-        <Stat label="Preflight executions" value={num(preflightExecutions)} valueClass="text-accent" sub="evidence only · not scored" />
+        <Link href="/bsc/proof" className="block transition hover:opacity-80" title="View on-chain rehearsal proof">
+          <Stat label="Preflight executions" value={num(preflightExecutions)} valueClass="text-accent" sub="evidence only · not scored · proof ›" />
+        </Link>
         <Stat label="Internal risk budget" value={`${cfg.internalWindowDrawdownPct}%`} sub="organizer DQ threshold pending" />
       </div>
 
