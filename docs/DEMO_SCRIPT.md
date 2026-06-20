@@ -20,7 +20,7 @@ off-mandate before signing. The same strategy ships twice: as the live agent
 Five things that distinguish it:
 
 1. **The LLM is provably outside the money path** — scoring, sizing, approval,
-   signing, and execution are deterministic and tested (317 passing tests).
+   signing, and execution are deterministic and tested (371 passing tests).
 2. **Real on-chain proof** — registered wallet, a real registration transaction,
    and live mainnet spot swaps shown on `/bsc/proof`.
 3. **An independent signer-side refusal layer** — demoed live; holds even if
@@ -31,7 +31,7 @@ Five things that distinguish it:
    terminal demos run offline from a clean clone (see Part B). No keys in the repo.
 
 **Anchored facts (verified before recording):** all four pages return HTTP 200
-live; `pnpm test` → 317 passing; agent wallet `0x2d854b16D6d46DBBEe1a1e4aCAfb4ed6Bba75349`;
+live; `pnpm test` → 371 passing; agent wallet `0x2d854b16D6d46DBBEe1a1e4aCAfb4ed6Bba75349`;
 registration tx `0x3735…ad53` on contract `0x212c…aed5` (status `0x1`, block
 104452111); refusal demo → 1 APPROVE + 8 `REJECT_*`; skill validation → 16 signals,
 all 5 kinds.
@@ -57,18 +57,22 @@ Show `/bsc`.
 > decision-and-risk brain, and Trust Wallet Agent Kit is the only hand that signs.
 > The language model never scores, sizes, approves, signs, or executes a trade.
 
-Point to the status cards.
+Point to the **Two tracks, one doctrine** card, then the four status tiles above it.
 
 > Preflight and rehearsal evidence is separated from the June 22-to-28 competition
-> window, so nothing we do in testing can inflate the scored return or trade count.
+> window — see "preflight executions: evidence only, not scored" and "approvals:
+> June 22-28 only" — so nothing we do in testing can inflate the scored return or
+> trade count.
 
 ### 0:25–1:05 — The deterministic gate chain **[CORE]**
-Remain on `/bsc`.
+Remain on `/bsc`; scroll to the **Strategy — three uncrowded edges** card.
 
 > The agent hunts three uncrowded edge families: catalyst breakouts,
 > relative-strength continuation, and regime-gated momentum rotation. A catalyst
 > entry needs improving trending rank, volume expansion, a cooldown after the first
 > spike, and confirmed continuation; relative strength must persist across checks.
+
+Point to the **Gate chain** line on that same card.
 
 > Every candidate then runs the full gauntlet — exact contract eligibility,
 > liquidity and route safety, a calibrated expected move, the competition's
@@ -211,7 +215,7 @@ pnpm install
 
 ### B.2 — Run the whole deterministic core OFFLINE (no key required)
 ```bash
-pnpm test                  # 317 tests: gates, policy, sizing, regime, watchdog
+pnpm test                  # 371 tests: gates, policy, sizing, regime, watchdog
 pnpm demo:twak-refusal     # signer refuses 8 off-mandate intents, approves 1
 pnpm skill:validate        # 16 signals valid; all 5 signal kinds present
 pnpm skill:backtest        # per-family backtest on a LABELED synthetic fixture
@@ -292,7 +296,8 @@ pm2 start ops/pm2.config.cjs   # run the worker under process management
 The LLM sits only in the top box. No private key touches the backend or a database.
 
 ### C.2 — Page-by-page reference
-- `/bsc` — product + strategy overview, competition status cards.
+- `/bsc` — product overview, the Two-tracks and Strategy (entry families + gate
+  chain) cards, competition status tiles, and the recent Signal Mandates feed.
 - `/bsc/proof` — wallet, registration tx, competition-only return/drawdown, confirmed
   legs, BSC anchors, two-ledger view, trailing-stop state.
 - `/bsc/ops` — readiness, funding, registration, rehearsal, calibration, alerts,
@@ -305,7 +310,7 @@ The LLM sits only in the top box. No private key touches the backend or a databa
 ### C.3 — Command reference (what each proves / does it need a key?)
 | Command | Proves | Needs key? |
 |---|---|---|
-| `pnpm test` | 317 tests across gates/policy/sizing/regime | No |
+| `pnpm test` | 371 tests across gates/policy/sizing/regime | No |
 | `pnpm demo:twak-refusal` | Signer-side refusals, no funds move | No |
 | `pnpm skill:validate` | 16 signals valid, all 5 kinds | No |
 | `pnpm skill:backtest` | Friction-honest per-family backtest (labeled fixture) | No (real if `CMC_API_KEY`+`SKILL_BACKTEST_REAL`) |
