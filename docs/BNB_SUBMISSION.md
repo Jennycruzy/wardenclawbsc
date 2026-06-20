@@ -111,8 +111,27 @@ Live: configure TWAK + RPC + alerts, pass the rehearsal, then run under pm2
 
 ## Pending organizer clarifications
 
-The exact DQ threshold, simulated-cost model, WBNB/native-BNB treatment, and the
-eligible-token count discrepancy remain unresolved in the available organizer
-material. `/bsc/rules` shows the internal safety assumptions currently used.
-They are not presented as confirmed competition rules and must be reviewed when
-the organizer publishes exact answers.
+Most earlier open items are now resolved; one genuinely remains. `/bsc/rules`
+shows the exact value used for each.
+
+- **Disqualification drawdown threshold + measurement basis — still open.** Only
+  the organizer can confirm it. We assume 30% indicative, whole-window
+  peak-to-trough, and the three-layer drawdown governor stays well inside that.
+- **Simulated scoring cost — anchored, exact model still pending.** The organizer
+  team confirmed the trading-week swap fee is 0.077%/swap (~0.15% round trip). We
+  anchor the Scored-Ledger cost to that figure (`SCORING_SIM_COST_BPS=7.7`/leg)
+  as the best grounded estimate; if they publish a different scoring model it is a
+  one-line change. This is the real execution fee (Wallet Ledger, `twakFeeBps`),
+  which is confirmed; whether scoring simulates exactly that number is not
+  separately confirmed. The binding entry gate is the wallet floor, so this value
+  mainly affects scored-return display and week-state timing, not trade selection.
+- **WBNB / native-BNB treatment — resolved by deterministic rule.** Native BNB is
+  not a BEP-20 token, so it is never a ranked position (gas only); WBNB appears
+  only as a route hop. Enforced via `REJECT_HELD_NATIVE_OR_WBNB`.
+- **Eligible-token count — resolved.** The enumerated list is a clean 148 tokens
+  (no duplicates); eligibility is keyed by exact BEP-20 contract address, so the
+  page's headline count does not affect behavior.
+
+Resolved items reflect our own deterministic rules and confirmed fee data, not an
+assumption about unpublished organizer values. The one open item (DQ threshold)
+must be reviewed if the organizer publishes an exact answer.
