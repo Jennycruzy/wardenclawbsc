@@ -142,6 +142,8 @@ Show `/bsc/mandates` briefly.
 > attribution and the gate outcomes that produced it — each is independently
 > replayable.
 
+_Note: every mandate is replayable — approved or skipped — so any row in the feed is safe to click; the replay recomputes its hash chain and surfaces the reject reasons._
+
 Return to `/bsc/ops`.
 
 > Operations shows integration readiness, wallet funding, registration, rehearsal
