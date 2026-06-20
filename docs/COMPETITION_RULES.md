@@ -85,10 +85,14 @@ implementation_file: packages/core/src/config.ts
 
 ```
 rule: Exact simulated-transaction-cost amount/model used in scoring
-source: DoraHacks official page (transcribed 2026-06-09)
+source: DoraHacks official page (transcribed 2026-06-09); swap fee 0.077%/swap (~0.15% round trip) confirmed by organizer team
 status: needs-organizer-confirmation
-exact_value: SCORING_SIM_COST_BPS=10 per leg (internal safety assumption)
+exact_value: SCORING_SIM_COST_BPS=7.7 per leg, anchored to the confirmed swap fee; exact scoring model still pending
 implementation_file: packages/core/src/frictionModel.ts
+note: The 0.077% swap fee / 0.15% round trip is the real execution fee (Wallet Ledger,
+  twakFeeBps) and is confirmed. Whether scoring simulates exactly that figure is not
+  separately confirmed; we model the Scored Ledger with the same number as the best
+  grounded estimate.
 ```
 
 ```

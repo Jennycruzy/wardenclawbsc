@@ -80,7 +80,8 @@ export const COMPETITION_RULES: CompetitionRule[] = [
     rule: "Exact simulated-transaction-cost amount/model used in scoring",
     source: OPEN_SOURCE,
     status: "needs-organizer-confirmation",
-    exactValue: "SCORING_SIM_COST_BPS=10 per leg (internal safety assumption)",
+    exactValue:
+      "SCORING_SIM_COST_BPS=7.7 per leg, anchored to the organizer-confirmed swap fee (0.077%/swap, ~0.15% round trip); exact scoring model still pending",
     implementationFile: "packages/core/src/frictionModel.ts",
   },
   {

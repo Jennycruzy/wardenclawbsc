@@ -73,8 +73,8 @@ export interface RiskConfig {
   // Micro-capital economics + calibration
   netEdgeMinBps: number;
   frictionBudgetBps: number;
-  scoringSimCostBps: number; // per trade leg — internal safety assumption until confirmed
-  twakFeeBps: number; // TWAK swap fee per leg — 7.7 (0.077%) waived rate during the trading week
+  scoringSimCostBps: number; // per trade leg — anchored to the confirmed swap fee; exact scoring model still pending
+  twakFeeBps: number; // TWAK swap fee per leg — 7.7 (0.077%) organizer-confirmed waived rate for the trading week
   walletFloorFraction: number; // expected move must exceed this × measured real round-trip
   dustRoundTripCeilingBps: number; // measured real round-trip above this = dust (notional too small vs fixed cost)
   maxSlippageBps: number;
@@ -156,8 +156,8 @@ export const DEFAULT_RISK_CONFIG: RiskConfig = {
 
   netEdgeMinBps: 30,
   frictionBudgetBps: 120,
-  scoringSimCostBps: 10, // internal scoring assumption; organizer model still pending
-  twakFeeBps: 7.7,
+  scoringSimCostBps: 7.7, // anchored to the organizer-confirmed swap fee (0.077%/leg, ~0.15% round trip); exact scoring model still pending
+  twakFeeBps: 7.7, // organizer-confirmed waived rate for the trading week: 0.077%/swap (~0.15% round trip)
   walletFloorFraction: 0.75,
   dustRoundTripCeilingBps: 350,
   maxSlippageBps: 50,
