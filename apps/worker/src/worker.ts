@@ -1797,6 +1797,51 @@ async function main(): Promise<void> {
         });
         if (e.result.approved) approved++;
 
+        // Per-candidate audit trail: write the hash-chained decision events for EVERY
+        // evaluated candidate — not just the executed winner — so any mandate (a skip
+        // included) is independently replayable with its reject reason and economics.
+        // The winner additionally gets an `execution` event below; these four come
+        // first so the replay timeline reads perception → decision → economics → risk →
+        // execution. Recording is best-effort: a logging fault must never interrupt
+        // trading, and a failed append leaves the chain pointer untouched (the next
+        // event chains from the same prior hash), so the chain stays intact.
+        try {
+          await audit.append({
+            timestamp: new Date().toISOString(),
+            mandateId: mandate.id,
+            stage: "perception",
+            input: { symbol: e.token.symbol },
+            output: { ...mandate.perception },
+            proofAnchors: { ...mandate.proofAnchors },
+          });
+          await audit.append({
+            timestamp: new Date().toISOString(),
+            mandateId: mandate.id,
+            stage: "decision",
+            input: { symbol: e.token.symbol },
+            // Flatten the reject code to a top-level string: the replay engine surfaces
+            // rejections by scanning event outputs for a value starting with "REJECT_",
+            // and decision.rejectedReasons is an array it would not match.
+            output: { ...mandate.decision, rejectCode: e.result.rejectCode ?? null },
+          });
+          await audit.append({
+            timestamp: new Date().toISOString(),
+            mandateId: mandate.id,
+            stage: "economics",
+            input: { symbol: e.token.symbol },
+            output: { ...mandate.economics },
+          });
+          await audit.append({
+            timestamp: new Date().toISOString(),
+            mandateId: mandate.id,
+            stage: "risk",
+            input: { symbol: e.token.symbol },
+            output: { ...mandate.risk },
+          });
+        } catch (err) {
+          console.warn(`[worker] replay-trail recording skipped for ${e.token.symbol}: ${(err as Error).message}`);
+        }
+
         // Live execution: the winner is signed by TWAK (the sole signer).
         // Blocked when x402 is required by config but unavailable/failed this cycle.
         if (isWinner && executor && e.result.intent && x402Blocks) {

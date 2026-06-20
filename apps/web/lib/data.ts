@@ -69,21 +69,27 @@ export function getBscMandate(id: string): SignalMandate | null {
 
 // ---- Audit events ---------------------------------------------------------
 
-function loadAllAuditEvents(): AuditEvent[] {
-  const files = listFiles(AUDIT_DIR, ".jsonl").filter((f) => !f.endsWith(".mandates.jsonl"));
-  const events: AuditEvent[] = [];
-  for (const f of files) {
-    events.push(...readJsonl(f, (o) => o as AuditEvent));
-  }
-  return events;
+/** One JSONL file per run = one independent hash chain. Each run's audit events
+ *  are returned as their own group; the genuine audit logs end in `.jsonl` but not
+ *  `.mandates.jsonl` (full mandate snapshots) or `.snapshots.jsonl` (hourly values). */
+function loadAuditEventsByRun(): AuditEvent[][] {
+  const files = listFiles(AUDIT_DIR, ".jsonl").filter(
+    (f) => !f.endsWith(".mandates.jsonl") && !f.endsWith(".snapshots.jsonl"),
+  );
+  return files.map((f) => readJsonl(f, (o) => o as AuditEvent));
 }
 
 export function getReplay(mandateId: string): MandateReplay | null {
-  const events = loadAllAuditEvents();
-  const mine = events.filter((e) => e.mandateId === mandateId);
-  if (mine.length === 0) return null;
-  // Replay over the file's own ordered events so the integrity check is meaningful.
-  return replayMandate(mandateId, events);
+  // A mandate's events all live in exactly one run file (its id is prefixed with the
+  // runId), so verify integrity over that run's own chain. Concatenating independent
+  // runs would always "break" at each file boundary — the genesis-rooted chains do
+  // not join — and would make every replay report a false integrity failure.
+  for (const events of loadAuditEventsByRun()) {
+    if (events.some((e) => e.mandateId === mandateId)) {
+      return replayMandate(mandateId, events);
+    }
+  }
+  return null;
 }
 
 // ---- Proof / derived stats ------------------------------------------------
