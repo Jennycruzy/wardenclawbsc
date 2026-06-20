@@ -84,6 +84,10 @@ export interface RiskConfig {
   // block-to-block movement. Capped by maxSlippageBps. This is execution safety only;
   // it does NOT affect the profitability/net-edge gate (which uses modeled friction).
   swapSlippageBufferBps: number;
+  // Forced safety EXITS (stop/trail/regime/danger) may slip more than entries:
+  // a protective exit that can't fill is worse than one that fills with slippage.
+  // Entries stay capped at maxSlippageBps; only exits use this wider ceiling.
+  exitMaxSlippageBps: number;
   shadowFillToleranceBps: number;
   kellyFraction: number;
   calibrationMaxAgeDays: number;
@@ -126,7 +130,7 @@ export const DEFAULT_RISK_CONFIG: RiskConfig = {
   weeklyLegBudget: 14,
   flatBandLoPct: -2,
   flatBandHiPct: 3,
-  defendTriggerPct: 8,
+  defendTriggerPct: 25, // win-first: stay in full-aggression HUNT until a strong lead before protecting
   huntMinScore: 80,
   pressMinScore: 65,
   defendMinScore: 90,
@@ -158,6 +162,7 @@ export const DEFAULT_RISK_CONFIG: RiskConfig = {
   dustRoundTripCeilingBps: 350,
   maxSlippageBps: 50,
   swapSlippageBufferBps: 25,
+  exitMaxSlippageBps: 150, // wider ceiling for forced safety exits only (get out beats non-fill)
   shadowFillToleranceBps: 40,
   kellyFraction: 0.25,
   calibrationMaxAgeDays: 7,
@@ -270,6 +275,7 @@ export function loadRiskConfig(env: Record<string, string | undefined> = {}): Ri
     dustRoundTripCeilingBps: num("DUST_ROUND_TRIP_CEILING_BPS", d.dustRoundTripCeilingBps),
     maxSlippageBps: num("MAX_SLIPPAGE_BPS", d.maxSlippageBps),
     swapSlippageBufferBps: num("SWAP_SLIPPAGE_BUFFER_BPS", d.swapSlippageBufferBps),
+    exitMaxSlippageBps: num("EXIT_MAX_SLIPPAGE_BPS", d.exitMaxSlippageBps),
     survivalLossStreak: num("SURVIVAL_LOSS_STREAK", d.survivalLossStreak),
     shadowFillToleranceBps: num("SHADOW_FILL_TOLERANCE_BPS", d.shadowFillToleranceBps),
     kellyFraction: num("KELLY_FRACTION", d.kellyFraction),
@@ -298,6 +304,8 @@ export function loadRiskConfig(env: Record<string, string | undefined> = {}): Ri
   requireRange("dangerPortfolioValueUsd", 0, loaded.startingCapitalUsd);
   requireRange("maxSlippageBps", 1, 500);
   requireRange("swapSlippageBufferBps", 0, loaded.maxSlippageBps);
+  // Exit ceiling must be at least as wide as the entry cap (exits never tighter) and bounded.
+  requireRange("exitMaxSlippageBps", loaded.maxSlippageBps, 500);
   requireRange("walletFloorFraction", 0, 2);
   requireRange("survivalLossStreak", 1, 20);
 

@@ -29,6 +29,19 @@ describe("risk config safety invariants", () => {
     expect(() => loadRiskConfig({ MAX_SLIPPAGE_BPS: "1000" })).toThrow(/maxSlippageBps/);
   });
 
+  it("defaults to a win-first DEFEND trigger and a wider exit-slippage ceiling", () => {
+    const c = loadRiskConfig({});
+    expect(c.defendTriggerPct).toBe(25);
+    expect(c.exitMaxSlippageBps).toBe(150);
+    expect(c.exitMaxSlippageBps).toBeGreaterThanOrEqual(c.maxSlippageBps);
+  });
+
+  it("rejects an exit-slippage ceiling tighter than the entry cap", () => {
+    expect(() =>
+      loadRiskConfig({ MAX_SLIPPAGE_BPS: "50", EXIT_MAX_SLIPPAGE_BPS: "40" }),
+    ).toThrow(/exitMaxSlippageBps/);
+  });
+
   it("rejects an inverted trade-frequency policy", () => {
     expect(() =>
       loadRiskConfig({

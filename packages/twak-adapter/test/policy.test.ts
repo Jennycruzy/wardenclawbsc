@@ -93,3 +93,40 @@ describe("evaluateTwakPolicy — refuses bad intents (the refusal matrix)", () =
     expect(r.rejectCode).toBe(TwakRejectCode.OVER_DAILY_SPEND);
   });
 });
+
+describe("evaluateTwakPolicy — asymmetric exit slippage ceiling", () => {
+  const exitConfig: TwakPolicyConfig = { ...config, maxSlippageBps: 50, maxExitSlippageBps: 150 };
+  // A forced safety exit sells the held token (CAKE) back to the stable (USDT).
+  const exitIntent = (slippageBps: number): TwakIntent =>
+    cleanIntent({
+      tokenInAddress: CAKE,
+      tokenOutAddress: USDT,
+      slippageBps,
+      decodedAction: "exit",
+      mandateAction: "exit",
+    });
+
+  it("approves a forced exit above the entry cap but within the exit cap", () => {
+    const r = evaluateTwakPolicy(exitIntent(120), allowlist, exitConfig, { spentTodayUsd: 0 });
+    expect(r.approved).toBe(true);
+    expect(r.passedChecks).toContain("slippage");
+  });
+
+  it("still refuses a forced exit above the exit cap", () => {
+    const r = evaluateTwakPolicy(exitIntent(200), allowlist, exitConfig, { spentTodayUsd: 0 });
+    expect(r.approved).toBe(false);
+    expect(r.rejectCode).toBe(RejectCode.SLIPPAGE);
+  });
+
+  it("does NOT widen entries — an entry at the same slippage is still refused", () => {
+    const r = evaluateTwakPolicy(cleanIntent({ slippageBps: 120 }), allowlist, exitConfig, { spentTodayUsd: 0 });
+    expect(r.approved).toBe(false);
+    expect(r.rejectCode).toBe(RejectCode.SLIPPAGE);
+  });
+
+  it("falls back to the entry cap for exits when no exit cap is configured", () => {
+    const r = evaluateTwakPolicy(exitIntent(120), allowlist, config, { spentTodayUsd: 0 });
+    expect(r.approved).toBe(false);
+    expect(r.rejectCode).toBe(RejectCode.SLIPPAGE);
+  });
+});

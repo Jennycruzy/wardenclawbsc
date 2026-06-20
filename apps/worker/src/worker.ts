@@ -892,6 +892,9 @@ async function main(): Promise<void> {
     maxTradeUsd: Number(process.env.TWAK_MAX_TRADE_USD ?? "30"),
     maxDailySpendUsd: Number(process.env.TWAK_MAX_DAILY_SPEND_USD ?? "20"),
     maxSlippageBps: Number(process.env.TWAK_MAX_SLIPPAGE_BPS ?? "50"),
+    // Forced safety exits only: a wider ceiling so a protective exit fills on a
+    // fast/thin token instead of being refused. Entries stay at maxSlippageBps.
+    maxExitSlippageBps: Number(process.env.TWAK_MAX_EXIT_SLIPPAGE_BPS ?? String(config.exitMaxSlippageBps)),
     allowInfiniteApprovals: false,
     approvalBufferBps: config.approvalBufferBps,
   };
@@ -1035,7 +1038,10 @@ async function main(): Promise<void> {
           isInfiniteApproval: false,
           approvalAmount: pos.notionalUsd,
           mandateAmount: pos.notionalUsd,
-          slippageBps: config.maxSlippageBps,
+          // Forced safety exit: use the wider exit ceiling so the stop actually
+          // fills on a thin/fast-dropping token. The TWAK policy permits this only
+          // because mandateAction is "exit"; entries remain capped at maxSlippageBps.
+          slippageBps: config.exitMaxSlippageBps,
           isNonSpot: false,
           decodedAction: "exit",
           mandateAction: "exit",

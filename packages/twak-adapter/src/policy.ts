@@ -34,6 +34,12 @@ export interface TwakPolicyConfig {
   maxTradeUsd: number;
   maxDailySpendUsd: number;
   maxSlippageBps: number;
+  /**
+   * Optional wider slippage ceiling for forced safety EXITS only (mandateAction
+   * "exit"). Entries always use maxSlippageBps. When unset, exits share the entry
+   * cap (prior behavior). Must be >= maxSlippageBps to ever take effect.
+   */
+  maxExitSlippageBps?: number;
   allowInfiniteApprovals: boolean;
   approvalBufferBps: number;
 }
@@ -124,9 +130,16 @@ export function evaluateTwakPolicy(
   }
   passedChecks.push("approval_hygiene");
 
-  // Slippage cap.
-  if (intent.slippageBps > config.maxSlippageBps) {
-    return refuse(RejectCode.SLIPPAGE, `slippage ${intent.slippageBps}bps > cap ${config.maxSlippageBps}bps`);
+  // Slippage cap. Forced safety exits may use a wider ceiling than entries
+  // (getting out beats a non-fill), but never tighter — an exit cap below the
+  // entry cap is ignored. Entries always use maxSlippageBps.
+  const isExit = intent.mandateAction === "exit";
+  const slippageCap =
+    isExit && config.maxExitSlippageBps !== undefined
+      ? Math.max(config.maxSlippageBps, config.maxExitSlippageBps)
+      : config.maxSlippageBps;
+  if (intent.slippageBps > slippageCap) {
+    return refuse(RejectCode.SLIPPAGE, `slippage ${intent.slippageBps}bps > cap ${slippageCap}bps`);
   }
   passedChecks.push("slippage");
 

@@ -79,8 +79,9 @@ All families pass the same deterministic execution gates.
 - **PRESS, day 6+:** when scored return remains between -2% and +3%, exactly one
   pre-committed trade may use the 65+ score band. PRESS does not increase size or
   bypass any gate. Once filled, it is permanently consumed for the window.
-- **DEFEND, above +8% scored return:** requires 90+ score, adds 50 bps of net-edge
-  margin, and uses the tighter trailing stop.
+- **DEFEND, above the configured lead trigger (`DEFEND_TRIGGER_PCT`, default +25%
+  scored return — win-first):** requires 90+ score, adds 50 bps of net-edge margin,
+  and uses the tighter trailing stop. Set it lower to protect a small lead sooner.
 
 Entry, exit, and compliance-scout legs are timestamped and persisted.
 
@@ -112,6 +113,14 @@ Each position has a persisted high-water mark and software-enforced stop:
 
 The dedicated watch loop checks open positions every 45 seconds by default,
 independently of the slower entry-decision cadence.
+
+A software stop is not an exchange-native order: it only protects if the exit
+actually fills. Forced safety exits therefore use a wider slippage ceiling
+(`EXIT_MAX_SLIPPAGE_BPS` / `TWAK_MAX_EXIT_SLIPPAGE_BPS`, default 150 bps) than
+entries (`MAX_SLIPPAGE_BPS`, default 50 bps), so a protective exit on a thin or
+fast-dropping token fills rather than being refused while the position bleeds. The
+TWAK signing policy permits the wider tolerance only for `exit` intents; entries
+stay capped at the tight entry value.
 
 ## Deterministic Gate Chain
 
