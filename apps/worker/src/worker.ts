@@ -22,6 +22,7 @@ import {
   AuditLogger,
   appendMandate,
   buildCalibrationReport,
+  isCalibrationStale,
   loadRiskConfig,
   reconcile,
   recordPending,
@@ -636,8 +637,50 @@ function seedCalibration(): CalibrationReport {
       { score: 85, realizedMoveBps: 320, win: true },
     ],
     [60, 80],
-    { version: "seed-worker", generatedAt: new Date().toISOString(), historyDays: 0 },
+    { version: "seed-worker", generatedAt: "1970-01-01T00:00:00.000Z", historyDays: 0 },
   );
+}
+
+function loadCalibration(mode: "live" | "dry"): CalibrationReport {
+  const configured = process.env.CALIBRATION_REPORT_PATH ?? "data/calibration/report.json";
+  const reportPath = configured.startsWith("/") ? configured : join(ROOT, configured);
+  if (!existsSync(reportPath)) {
+    if (mode === "dry") return seedCalibration();
+    throw new Error(`Live mode blocked: calibration report missing at ${reportPath}. Run \`pnpm calibrate:edge\`.`);
+  }
+
+  let report: CalibrationReport;
+  try {
+    report = JSON.parse(readFileSync(reportPath, "utf8")) as CalibrationReport;
+  } catch (err) {
+    throw new Error(`Live mode blocked: invalid calibration report at ${reportPath}: ${(err as Error).message}`);
+  }
+  const valid =
+    typeof report.version === "string" &&
+    Number.isFinite(Date.parse(report.generatedAt)) &&
+    Number.isFinite(report.historyDays) &&
+    report.historyDays > 0 &&
+    Array.isArray(report.bands) &&
+    report.bands.length > 0 &&
+    report.bands.every(
+      (band) =>
+        Number.isFinite(band.minScore) &&
+        Number.isFinite(band.realizedMoveBps) &&
+        Number.isFinite(band.hitRate) &&
+        band.hitRate >= 0 &&
+        band.hitRate <= 1 &&
+        Number.isFinite(band.realizedVsPredicted),
+    );
+  if (!valid) {
+    throw new Error(`Live mode blocked: malformed calibration report at ${reportPath}.`);
+  }
+  if (mode === "live" && isCalibrationStale(report, Date.now(), config.calibrationMaxAgeDays)) {
+    throw new Error(
+      `Live mode blocked: calibration ${report.version} is older than ${config.calibrationMaxAgeDays} days.`,
+    );
+  }
+  console.log(`[worker] calibration ${report.version} loaded (${report.historyDays} history days).`);
+  return report;
 }
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
@@ -672,6 +715,7 @@ async function main(): Promise<void> {
     );
     process.exit(1);
   }
+  const calibration = loadCalibration(mode);
 
   console.log(`[worker] starting in ${mode.toUpperCase()} mode (interval ${intervalMs / 1000}s)`);
 
@@ -829,7 +873,6 @@ async function main(): Promise<void> {
 
   const cmc = new CmcClient();
   const loaded = loadEligibleTokens(process.env.ELIGIBLE_TOKENS_PATH ?? "data/eligible-tokens.json");
-  const calibration = seedCalibration();
   const usdt = loaded.tokens.find((t) => t.symbol === "USDT");
   if (!usdt) throw new Error("USDT not found in eligible set — cannot route stable legs.");
   const usdc = loaded.tokens.find((t) => t.symbol === "USDC");
@@ -1450,7 +1493,7 @@ async function main(): Promise<void> {
           windowRisk.windowDrawdownPct >= config.internalWindowDrawdownPct ||
           lossStreak >= config.survivalLossStreak,
         marketDataStale: false,
-        calibrationStale: mode === "dry",
+        calibrationStale: isCalibrationStale(calibration, Date.now(), config.calibrationMaxAgeDays),
         sizeMultiplier: weekBudget.sizeMultiplier,
         riskState: weekBudget.state,
         minimumScore: weekBudget.minimumScore,
