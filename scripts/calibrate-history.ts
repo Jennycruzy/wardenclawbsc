@@ -9,7 +9,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { STARTER_MAJORS } from "@wardenclaw/bsc-adapter";
 import { buildMomentumInputs, buildRsContinuationInputs } from "@wardenclaw/cmc-adapter";
-import { buildCalibrationReport, scoreBsc, type CalibrationSample } from "@wardenclaw/core";
+import { loadRiskConfig, scoreBsc, type CalibrationReport, type CalibrationSample } from "@wardenclaw/core";
 
 interface Point {
   timestamp: string;
@@ -109,9 +109,11 @@ function stats(samples: CalibrationSample[]): {
   n: number;
   meanBps: number;
   hitRate: number;
-  lower95Bps: number;
+  lowerOneSided95Bps: number;
 } {
-  if (samples.length === 0) return { n: 0, meanBps: 0, hitRate: 0, lower95Bps: 0 };
+  if (samples.length === 0) {
+    return { n: 0, meanBps: 0, hitRate: 0, lowerOneSided95Bps: 0 };
+  }
   const moves = samples.map((sample) => sample.realizedMoveBps);
   const mean = moves.reduce((sum, move) => sum + move, 0) / moves.length;
   const variance = moves.length > 1
@@ -121,20 +123,72 @@ function stats(samples: CalibrationSample[]): {
     n: moves.length,
     meanBps: Number(mean.toFixed(2)),
     hitRate: Number((moves.filter((move) => move > 0).length / moves.length).toFixed(4)),
-    lower95Bps: Number((mean - 1.96 * Math.sqrt(variance / moves.length)).toFixed(2)),
+    // One-sided 95% lower confidence bound for H0: mean <= required cost.
+    lowerOneSided95Bps: Number((mean - 1.645 * Math.sqrt(variance / moves.length)).toFixed(2)),
   };
 }
 
-function thresholdDiagnostics(samples: CalibrationSample[]): unknown[] {
+interface Diagnostic {
+  minScore: number;
+  maxScoreExclusive: number | null;
+  requiredMoveBps: number;
+  train: ReturnType<typeof stats>;
+  validation: ReturnType<typeof stats>;
+  qualified: boolean;
+}
+
+function validatedReport(
+  samples: CalibrationSample[],
+  generatedAt: string,
+): { report: CalibrationReport; diagnostics: Diagnostic[] } {
   const dates = [...new Set(samples.map((sample) => sample.scoredAtIso!).sort())];
   const split = dates[Math.max(1, Math.floor(dates.length * 0.7))]!;
   const train = samples.filter((sample) => sample.scoredAtIso! < split);
   const validation = samples.filter((sample) => sample.scoredAtIso! >= split);
-  return THRESHOLDS.map((minScore) => ({
-    minScore,
-    train: stats(train.filter((sample) => sample.score >= minScore)),
-    validation: stats(validation.filter((sample) => sample.score >= minScore)),
-  }));
+  const config = loadRiskConfig(process.env as Record<string, string | undefined>);
+  const requiredMoveBps = config.scoringSimCostBps * 2 + config.netEdgeMinBps;
+  const diagnostics = THRESHOLDS.map((minScore, index): Diagnostic => {
+    const next = THRESHOLDS[index + 1] ?? Infinity;
+    const inBand = (sample: CalibrationSample): boolean =>
+      sample.score >= minScore && sample.score < next;
+    const trainStats = stats(train.filter(inBand));
+    const validationStats = stats(validation.filter(inBand));
+    const qualified =
+      trainStats.n >= 12 &&
+      validationStats.n >= 6 &&
+      trainStats.lowerOneSided95Bps >= requiredMoveBps &&
+      validationStats.lowerOneSided95Bps >= requiredMoveBps;
+    return {
+      minScore,
+      maxScoreExclusive: Number.isFinite(next) ? next : null,
+      requiredMoveBps,
+      train: trainStats,
+      validation: validationStats,
+      qualified,
+    };
+  });
+  return {
+    report: {
+      version: `historical-validated-${generatedAt.slice(0, 10)}`,
+      generatedAt,
+      historyDays: DAYS,
+      bands: diagnostics.map((diagnostic) => {
+        const expectedMoveBps = diagnostic.qualified
+          ? Math.min(diagnostic.train.meanBps, diagnostic.validation.meanBps)
+          : 0;
+        const hitRate = diagnostic.qualified
+          ? Math.min(diagnostic.train.hitRate, diagnostic.validation.hitRate)
+          : 0;
+        return {
+          minScore: diagnostic.minScore,
+          realizedMoveBps: Number(expectedMoveBps.toFixed(2)),
+          hitRate: Number(hitRate.toFixed(4)),
+          realizedVsPredicted: Number((expectedMoveBps / diagnostic.minScore).toFixed(4)),
+        };
+      }),
+    },
+    diagnostics,
+  };
 }
 
 async function main(): Promise<void> {
@@ -196,12 +250,7 @@ async function main(): Promise<void> {
     a.family!.localeCompare(b.family!),
   );
   const generatedAt = new Date().toISOString();
-  const report = buildCalibrationReport(samples, THRESHOLDS, {
-    version: `historical-${generatedAt.slice(0, 10)}`,
-    generatedAt,
-    historyDays: DAYS,
-  });
-  const diagnostics = thresholdDiagnostics(samples);
+  const { report, diagnostics } = validatedReport(samples, generatedAt);
 
   for (const path of [SAMPLE_OUT, REPORT_OUT, DIAGNOSTICS_OUT]) mkdirSync(dirname(path), { recursive: true });
   writeFileSync(SAMPLE_OUT, `${JSON.stringify(samples, null, 2)}\n`, "utf8");
