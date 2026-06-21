@@ -44,10 +44,12 @@ export function decideTradePlan(state: ScheduleState, config: RiskConfig): Sched
     };
   }
 
-  // 2. No edge. If the daily minimum is still unmet and the day is closing, use
-  //    the stable↔stable Micro-Scout (allowed even in survival mode if safe).
+  // 2. No edge. If the daily minimum is still unmet by the configured deadline,
+  //    use the stable↔stable Micro-Scout (allowed even in survival mode if safe).
+  //    The default leaves eight hours to recover from RPC/TWAK/transient failures;
+  //    waiting until the final four hours creates avoidable disqualification risk.
   if (belowMinToday) {
-    const closing = state.hoursLeftInDay <= config.maxTradesPerDay * 0 + 4; // alert window
+    const closing = state.hoursLeftInDay <= config.microScoutDeadlineHours;
     if (closing) {
       if (state.safeToScout) {
         return {

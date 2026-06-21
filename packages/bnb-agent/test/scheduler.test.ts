@@ -23,14 +23,14 @@ describe("decideTradePlan", () => {
     expect(d.dailyTradeAtRisk).toBe(false);
   });
 
-  it("waits early in the day when no edge yet", () => {
-    const d = decideTradePlan(state({ hoursLeftInDay: 12 }), cfg);
+  it("waits before the configured compliance deadline when no edge exists", () => {
+    const d = decideTradePlan(state({ hoursLeftInDay: cfg.microScoutDeadlineHours + 1 }), cfg);
     expect(d.plan).toBe("hold");
     expect(d.dailyTradeAtRisk).toBe(false);
   });
 
-  it("falls back to a Micro-Scout near day end when the minimum is unmet and it is safe", () => {
-    const d = decideTradePlan(state({ hoursLeftInDay: 3, safeToScout: true }), cfg);
+  it("falls back to a Micro-Scout at the configured deadline when safe", () => {
+    const d = decideTradePlan(state({ hoursLeftInDay: cfg.microScoutDeadlineHours, safeToScout: true }), cfg);
     expect(d.plan).toBe("micro_scout");
     expect(d.dailyTradeAtRisk).toBe(true);
   });

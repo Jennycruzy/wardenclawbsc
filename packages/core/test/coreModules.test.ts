@@ -181,6 +181,18 @@ describe("calibration report builder", () => {
     expect(top.hitRate).toBeCloseTo(0.5, 5);
   });
 
+  it("keeps losing moves signed instead of converting losses into fake edge", () => {
+    const report = buildCalibrationReport(
+      [
+        { score: 80, realizedMoveBps: 100, win: true },
+        { score: 82, realizedMoveBps: -300, win: false },
+      ],
+      [80],
+      { version: "signed", generatedAt: "2026-06-20T00:00:00Z", historyDays: 30 },
+    );
+    expect(report.bands[0]!.realizedMoveBps).toBe(-100);
+  });
+
   it("splits samples per signal family with family-versioned reports", () => {
     const samples = [
       { score: 82, realizedMoveBps: 200, win: true, family: "catalyst" },

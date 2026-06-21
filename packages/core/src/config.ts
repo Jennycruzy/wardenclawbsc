@@ -39,6 +39,8 @@ export interface RiskConfig {
   minTradesPerDay: number;
   targetTradesPerDay: number;
   maxTradesPerDay: number;
+  /** Trigger the safe compliance scout this many hours before UTC day-end. */
+  microScoutDeadlineHours: number;
 
   // Week-schedule risk budget (HUNT/PRESS/DEFEND, leg-counting, win-first sizing)
   weeklyLegBudget: number;
@@ -126,6 +128,7 @@ export const DEFAULT_RISK_CONFIG: RiskConfig = {
   minTradesPerDay: 1,
   targetTradesPerDay: 2,
   maxTradesPerDay: 3,
+  microScoutDeadlineHours: 8,
 
   weeklyLegBudget: 14,
   flatBandLoPct: -2,
@@ -240,6 +243,7 @@ export function loadRiskConfig(env: Record<string, string | undefined> = {}): Ri
     minTradesPerDay: num("MIN_TRADES_PER_DAY", d.minTradesPerDay),
     targetTradesPerDay: num("TARGET_TRADES_PER_DAY", d.targetTradesPerDay),
     maxTradesPerDay: num("MAX_TRADES_PER_DAY", d.maxTradesPerDay),
+    microScoutDeadlineHours: num("MICRO_SCOUT_DEADLINE_HOURS", d.microScoutDeadlineHours),
 
     weeklyLegBudget: num("WEEKLY_LEG_BUDGET", d.weeklyLegBudget),
     flatBandLoPct: num("FLAT_BAND_LO_PCT", d.flatBandLoPct),
@@ -310,6 +314,7 @@ export function loadRiskConfig(env: Record<string, string | undefined> = {}): Ri
   requireRange("breakevenTriggerAtr", 0.1, 10);
   requireRange("walletFloorFraction", 0, 2);
   requireRange("survivalLossStreak", 1, 20);
+  requireRange("microScoutDeadlineHours", 1, 23);
 
   if (loaded.softDrawdownPct > loaded.maxDailyDrawdownPct) {
     throw new Error(

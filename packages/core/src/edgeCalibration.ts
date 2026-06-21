@@ -62,6 +62,10 @@ export interface CalibrationSample {
   win: boolean;
   /** Which signal family produced the sample (for per-family calibration). */
   family?: string;
+  /** Optional provenance retained for audit and leakage checks. */
+  symbol?: string;
+  scoredAtIso?: string;
+  horizonHours?: number;
 }
 
 /**
@@ -80,8 +84,10 @@ export function buildCalibrationReport(
     const next = thresholds[idx + 1] ?? Infinity;
     const inBand = samples.filter((s) => s.score >= minScore && s.score < next);
     const n = inBand.length;
+    // Direction matters: a -200bps loss must reduce expected edge, not become
+    // +200bps through an absolute-value transform.
     const avgMove = n
-      ? inBand.reduce((sum, s) => sum + Math.abs(s.realizedMoveBps), 0) / n
+      ? inBand.reduce((sum, s) => sum + s.realizedMoveBps, 0) / n
       : 0;
     const hitRate = n ? inBand.filter((s) => s.win).length / n : 0;
     // Predicted = the band's own threshold expressed in bps as a naive prior;

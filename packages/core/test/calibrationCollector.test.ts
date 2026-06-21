@@ -50,6 +50,9 @@ describe("calibration collector — maturePending", () => {
     expect(matured[0]!.realizedMoveBps).toBeCloseTo(500, 2);
     expect(matured[0]!.win).toBe(true);
     expect(matured[0]!.score).toBe(80);
+    expect(matured[0]!.symbol).toBe("CAKE");
+    expect(matured[0]!.scoredAtIso).toBe("2026-06-18T00:00:00Z");
+    expect(matured[0]!.horizonHours).toBe(24);
   });
 
   it("keeps observations younger than the horizon pending", () => {

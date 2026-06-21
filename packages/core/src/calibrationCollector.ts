@@ -87,6 +87,9 @@ export function maturePending(
       realizedMoveBps: Number(realizedMoveBps.toFixed(2)),
       win: realizedMoveBps > winThresholdBps,
       family: p.family,
+      symbol: p.symbol,
+      scoredAtIso: p.scoredAtIso,
+      horizonHours,
     });
   }
 
