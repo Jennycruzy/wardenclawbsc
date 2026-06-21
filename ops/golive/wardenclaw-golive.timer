@@ -1,0 +1,14 @@
+[Unit]
+Description=Fire WardenClaw go-live at competition window open (2026-06-22 00:00:00 UTC)
+
+[Timer]
+# System TZ is already Etc/UTC; the explicit UTC suffix makes it correct regardless.
+OnCalendar=2026-06-22 00:00:00 UTC
+AccuracySec=1s
+# Persistent=true => if the box was down at 00:00, the flip runs at next boot.
+# Starting late beats not starting for a 7-day live window.
+Persistent=true
+Unit=wardenclaw-golive.service
+
+[Install]
+WantedBy=timers.target

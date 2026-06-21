@@ -1,0 +1,13 @@
+[Unit]
+Description=WardenClaw — flip wardenbsc worker back to DRY at competition window close
+Documentation=file:/root/wardenbsc/ops/golive/README.md
+After=network-online.target pm2-root.service
+Wants=network-online.target
+ConditionPathExists=/root/wardenbsc/ops/golive/wardenclaw-mode.sh
+
+[Service]
+Type=oneshot
+ExecStart=/root/wardenbsc/ops/golive/wardenclaw-mode.sh dry
+TimeoutStartSec=120
+StandardOutput=journal
+StandardError=journal

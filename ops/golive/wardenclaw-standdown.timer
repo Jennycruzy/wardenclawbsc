@@ -1,0 +1,14 @@
+[Unit]
+Description=Fire WardenClaw stand-down at competition window close (2026-06-29 00:00:00 UTC)
+
+[Timer]
+# Window closes 2026-06-28T23:59:59Z; flip to DRY one second later so the worker
+# stops executing real trades the moment scoring ends. The worker has NO post-window
+# suppression on "attack" plans, so this stand-down is a safety requirement, not a nicety.
+OnCalendar=2026-06-29 00:00:00 UTC
+AccuracySec=1s
+Persistent=true
+Unit=wardenclaw-standdown.service
+
+[Install]
+WantedBy=timers.target

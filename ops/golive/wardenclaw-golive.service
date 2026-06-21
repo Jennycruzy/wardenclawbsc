@@ -1,0 +1,14 @@
+[Unit]
+Description=WardenClaw — flip wardenbsc worker to LIVE at competition window open
+Documentation=file:/root/wardenbsc/ops/golive/README.md
+After=network-online.target pm2-root.service
+Wants=network-online.target
+ConditionPathExists=/root/wardenbsc/ops/golive/wardenclaw-mode.sh
+
+[Service]
+Type=oneshot
+# The script sets its own PATH/HOME/PM2_HOME; keep the unit env minimal on purpose.
+ExecStart=/root/wardenbsc/ops/golive/wardenclaw-mode.sh live
+TimeoutStartSec=120
+StandardOutput=journal
+StandardError=journal
