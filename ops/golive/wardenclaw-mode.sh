@@ -92,6 +92,30 @@ if [[ "$MODE" == "live" || "$MODE" == "check" ]]; then
   [[ -n "$TWAK_PATH" ]]                                   || fail "TWAK_CONFIG_PATH empty in .env — cannot go live"
   [[ -f "$TWAK_PATH/credentials.json" ]]                 || fail "TWAK credentials.json missing under $TWAK_PATH"
   [[ -f "$TWAK_PATH/wallet.json" ]]                      || fail "TWAK wallet.json missing under $TWAK_PATH"
+  calibration_path="$(envval CALIBRATION_REPORT_PATH || true)"
+  [[ -n "$calibration_path" ]] || calibration_path="data/calibration/report.json"
+  [[ "$calibration_path" = /* ]] || calibration_path="$ROOT/$calibration_path"
+  [[ -s "$calibration_path" ]] || fail "calibration report missing/empty at $calibration_path — run pnpm calibrate:edge"
+  jq -e '
+    (.version | type == "string") and
+    (.generatedAt | type == "string") and
+    (.historyDays | type == "number" and . > 0) and
+    (.bands | type == "array" and length > 0) and
+    (all(.bands[];
+      (.minScore | type == "number") and
+      (.realizedMoveBps | type == "number") and
+      (.hitRate | type == "number" and . >= 0 and . <= 1) and
+      (.realizedVsPredicted | type == "number")
+    ))
+  ' "$calibration_path" >/dev/null 2>&1 || fail "calibration report malformed at $calibration_path"
+  calibration_generated="$(jq -r '.generatedAt' "$calibration_path")"
+  calibration_epoch="$(date -d "$calibration_generated" +%s 2>/dev/null || echo 0)"
+  calibration_max_days="$(envval CALIBRATION_MAX_AGE_DAYS || true)"
+  [[ "$calibration_max_days" =~ ^[0-9]+([.][0-9]+)?$ ]] || calibration_max_days=7
+  calibration_max_seconds="$(awk -v days="$calibration_max_days" 'BEGIN { printf "%.0f", days * 86400 }')"
+  (( calibration_epoch > 0 )) || fail "calibration generatedAt is invalid: $calibration_generated"
+  (( $(date +%s) - calibration_epoch <= calibration_max_seconds )) ||
+    fail "calibration report is older than ${calibration_max_days} days: $calibration_generated"
   # rehearsal gate (worker.ts:655). NEVER silently override — operator must have
   # set REHEARSAL_OVERRIDE=true OR produced a real rehearsal.json {passed:true}.
   local_override="$(envval REHEARSAL_OVERRIDE || true)"
